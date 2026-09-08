@@ -16,15 +16,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ke_setup import nearest_future, run_setup
+from runtime import output_dir, run_id, atomic_json, resolve_time, heartbeat, build_hash, measure_clock, runtime_hash
 
 ROOT = Path(__file__).resolve().parent.parent
 USER = ROOT / "userscript" / "ke-award-macro.user.js"
-OUT = ROOT / "dev-shots"
-CDP = "http://localhost:9222"
+OUT = output_dir()
+CDP = "http://localhost:9232"
 CAL = "/booking/calendar-fare-bonus"
 KST = timezone(timedelta(hours=9))
 
-report: dict = {}
+report: dict = {"runId": run_id()}
+active_page = None
 
 
 def log(m):
@@ -32,22 +34,26 @@ def log(m):
 
 
 def finish(ok: bool, why: str, code: int) -> int:
+    if active_page is not None:
+        try:
+            active_page.evaluate("""() => {
+              const R=window.KE_REC, H=window.KE_HUD;
+              if (R) { if (R.state.playing) R.pause('실행 종료'); R.state.allowPay=false; R.state.playAfterReload=false; R.save(); }
+              if (H) { H.state.armed=false; H.save(); }
+            }""")
+        except Exception:
+            pass
     report.update(ok=ok, why=why, endedAt=datetime.now(KST).isoformat())
     OUT.mkdir(exist_ok=True)
-    (OUT / "autorun_report.json").write_text(
-        json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
+    atomic_json(OUT / "autorun_report.json", report)
+    heartbeat("macro", "finished", ok=ok, why=why)
     log(("성공: " if ok else "실패: ") + why)
     print(json.dumps({"ok": ok, "why": why}, ensure_ascii=False))
     return code
 
 
 def target_time(spec: str) -> datetime:
-    now = datetime.now(KST)
-    if spec.startswith("+"):
-        return now + timedelta(seconds=int(spec[1:].rstrip("s")))
-    h, m = (spec.split(":") + ["0"])[:2]
-    t = now.replace(hour=int(h), minute=int(m), second=0, microsecond=0)
-    return t if t > now else t + timedelta(days=1)
+    return resolve_time(spec)
 
 
 def ensure_browser() -> bool:
@@ -63,7 +69,7 @@ def ensure_browser() -> bool:
             log("브라우저가 없어 새로 띄운다")
             try:
                 if sys.platform == "win32":
-                    subprocess.Popen(["cmd", "/c", str(ROOT / "dev-browser.cmd")],
+                    subprocess.Popen(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ROOT / "dev/astra_browsers.ps1"), "-Port", "9232"],
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 else:
                     subprocess.Popen(["bash", str(ROOT / "dev-browser.sh")],
@@ -77,6 +83,7 @@ def ensure_browser() -> bool:
 
 
 def main() -> int:
+    global active_page
     ap = argparse.ArgumentParser()
     ap.add_argument("--at", default="+60s", help="발사 시각 (09:00 또는 +90s)")
     ap.add_argument("--route", default="", help="도착지 코드 (CDG/FCO/ZRH/ICN). 생략하면 현재 설정")
@@ -85,16 +92,34 @@ def main() -> int:
     ap.add_argument("--cabin", default="프레스티지")
     ap.add_argument("--date", default="", help="목표 날짜 MM-DD (비우면 검사 안 함)")
     ap.add_argument("--dry", action="store_true", help="7단계(첫 주문) 앞에서 멈춘다")
+    ap.add_argument("--hold", action="store_true", help="명시적으로 주문 생성까지 진행, 결제는 수동")
+    ap.add_argument("--payment-window", action="store_true", help="실제 결제창을 열고 멈춤. 최종 결제 승인 금지")
+    ap.add_argument("--max-late", type=float, default=1.0)
+    ap.add_argument("--mode", choices=["ui", "hybrid-calendar"], default="ui")
     # 시작 화면. calendar = 달력에서 새로고침(검증됨), departure = 조회 화면에서 시작
     # (달력 한 장을 건너뛰어 앞단이 빨라질 수 있다는 가설. 실효를 재려고 넣었다).
     ap.add_argument("--start", default="calendar", choices=["calendar", "departure"])
     ap.add_argument("--lead", type=int, default=2500,
                     help="선발사(ms). 오픈시각보다 이만큼 일찍 새로고침해 조회가 09:00 직후 도착하게 한다")
     a = ap.parse_args()
+    if sum([a.dry, a.hold, a.payment_window]) > 1:
+        ap.error("--dry, --hold, --payment-window are mutually exclusive")
+    a.dry = not (a.hold or a.payment_window)
+    if not a.dry and a.mode != "ui":
+        ap.error("혼합 모드는 실사이트 비교 검증 전까지 dry 전용입니다")
 
     fire_at = target_time(a.at)
+    clock = measure_clock()
+    offset = clock["offset"]
+    report["clock"] = clock
+    if not a.dry and not clock["ok"]:
+        return finish(False, "실전 시계 오차 측정 실패", 6)
     report.update(startedAt=datetime.now(KST).isoformat(), fireAt=fire_at.isoformat(),
-                  route=a.route, cabin=a.cabin, date=a.date, dry=a.dry)
+                  route=a.route, origin=a.origin, cabin=a.cabin, date=a.date, dry=a.dry,
+                  buildHash=build_hash(), runtimeHash=runtime_hash(), hold=a.hold,
+                  paymentWindowTest=a.payment_window,
+                  departureDate=nearest_future(a.date).isoformat() if a.date else None)
+    heartbeat("macro", "preparing", date=a.date)
     log(f"발사 예정 {fire_at.strftime('%H:%M:%S')} / 노선 {a.route or '(현재)'} / {a.cabin} / dry={a.dry}")
 
     if not ensure_browser():
@@ -124,38 +149,56 @@ def main() -> int:
     with sync_playwright() as pw:
         b = pw.chromium.connect_over_cdp(CDP)
         ctx = b.contexts[0]
+        from browser_identity import mark_context
+        mark_context(ctx, 9232)
         js = USER.read_text(encoding="utf-8")
-        ctx.add_init_script(js)
+        ctx.add_init_script("if (location.hostname === 'www.koreanair.com') {\n" + js + "\n}")
         page = [p for p in ctx.pages if "koreanair" in p.url][0]
+        active_page = page
+        original_pages = set(ctx.pages)
+        from network_trace import NetworkTrace
+        trace = NetworkTrace(page, OUT, a.date)
         try: page.bring_to_front()      # 뒤에 있으면 브라우저가 타이머를 늦춘다
         except Exception: pass
         page.evaluate(js)
 
-        page.evaluate("""({cabin, date, dry, start}) => {
+        page.evaluate("""({cabin, date, dry, hold, paymentWindow, start}) => {
           const R = window.KE_REC, H = window.KE_HUD;
           R.pause('autorun'); R.state.playAfterReload = false;
           R.loadBaked();
           if (dry) R.state.steps = R.state.steps.slice(0, 6);   // 7단계(첫 주문) 전까지
+          else if (hold) R.state.steps = R.state.steps.slice(0, 7);
+          for (const step of R.state.steps) if (step.sel === '#submit-contact') step.noRetry = true;
           R.state.cabin = cabin;
           R.state.expectDate = date || '';
-          R.state.allowPay = !dry;
+          R.state.allowPay = paymentWindow;
           R.state.byCause = {}; R.state.problem = false;
           R.reset(); R.save();
           H.state.startAt = start;
-          H.state.armed = false;
-        }""", {"cabin": a.cabin, "date": a.date, "dry": a.dry, "start": a.start})
+          H.state.armed = false; H.save();
+        }""", {"cabin": a.cabin, "date": a.date, "dry": a.dry, "hold": a.hold,
+                 "paymentWindow": a.payment_window, "start": a.start})
+        hybrid = None
+        if a.mode == "hybrid-calendar":
+            from hybrid import CalendarPrefetch
+            hybrid = CalendarPrefetch(page, (fire_at.timestamp() - offset) * 1000)
+            hybrid.prepare()
+            report["hybrid"] = hybrid.report
 
         # 선발사: 오픈시각보다 lead 만큼 일찍 새로고침한다. 페이지가 뜨는 데 ~2.5초가
         # 걸려서, 08:59:57.5 에 쏘면 조회가 09:00:01 경 (오픈 직후) 도착해 재고침을 피한다.
         lead_at = fire_at - timedelta(milliseconds=a.lead)
         report["leadMs"] = a.lead
         report["leadFireAt"] = lead_at.isoformat()
-        wait = (lead_at - datetime.now(KST)).total_seconds()
+        wait = (lead_at - datetime.now(KST)).total_seconds() - offset
+        monotonic_fire = time.monotonic() + wait
         if wait > 0:
             log(f"{wait:.0f}초 대기 (발사 {lead_at.strftime('%H:%M:%S.%f')[:-3]}, 오픈 {fire_at.strftime('%H:%M:%S')} - 선발사 {a.lead}ms)")
             shown = False
             while True:
-                left = (lead_at - datetime.now(KST)).total_seconds()
+                left = monotonic_fire - time.monotonic()
+                heartbeat("macro", "ready", fireAt=fire_at.isoformat(), date=a.date,
+                          cabin=a.cabin, route=a.route, origin=a.origin, url=page.url)
                 if left <= 0:
                     break
                 # 발사 30초 전에 창을 앞으로 가져온다 - 사람이 눈으로 지켜볼 수 있게
@@ -167,18 +210,22 @@ def main() -> int:
                         log("창을 앞으로 (발사 30초 전)")
                     except Exception:
                         pass
-                time.sleep(min(5, max(0.02, left)))
+                page.wait_for_timeout(min(3000, max(1, left * 1000)))
 
+        if time.monotonic() - monotonic_fire > a.max_late:
+            return finish(False, "발사 마감 초과; 늦은 실행을 중단합니다", 6)
+        heartbeat("macro", "firing", fireAt=fire_at.isoformat())
         log("발사")
         t0 = time.time()
         try: page.bring_to_front()      # 발사 순간에도 한 번 더 (그새 뒤로 갔을 수 있다)
         except Exception: pass
-        page.evaluate("() => window.KE_HUD.fire('autorun')")
+        if not page.evaluate("() => window.KE_HUD.fire('autorun')"):
+            return finish(False, "HUD가 발사를 거절했습니다", 6)
 
         last, popup = -1, False
         ctx.on("page", lambda p: None)
         while time.time() - t0 < 180:
-            time.sleep(0.2)
+            page.wait_for_timeout(200)
             # 페이지가 넘어가면 스크립트가 사라질 수 있다 (Tampermonkey 없이 붙여 쓰는 구조).
             # 없으면 그 자리에서 다시 넣는다 - 재생 위치는 localStorage 에 있어 이어진다.
             try:
@@ -207,17 +254,78 @@ def main() -> int:
             return finish(False, "180초 안에 끝나지 않음", 4)
 
         OUT.mkdir(exist_ok=True)
-        try: page.screenshot(path=str(OUT / "autorun_end.png"))
-        except Exception: pass
-
         try:
             report["seats"] = page.evaluate("() => window.KE_PROBE ? KE_PROBE.seatTimeline() : []")
         except Exception: pass
 
-        done = report.get("idx", 0) >= report.get("total", 99)
+        done = report.get("idx", 0) == report.get("total", 99)
+        if a.dry and done:
+            readiness = """() => {
+              const e = document.querySelector('#submit-contact');
+              return location.pathname.includes('/payment/gate/') && !!e && KE_UTIL.visible(e) && !e.disabled;
+            }"""
+            # The final dry click can finish while its asynchronous UI is still
+            # loading. Count that bounded wait in the measured time, too.
+            ready_started = time.monotonic()
+            try:
+                page.wait_for_function(readiness, timeout=5000)
+                report["dryReady"] = True
+            except Exception:
+                report["dryReady"] = False
+            report["dryReadinessMs"] = round((time.monotonic() - ready_started) * 1000)
+            report["seconds"] = round(time.time() - t0, 2)
+            done = done and report["dryReady"]
         why = report.get("msg", "")
-        return finish(done and not report.get("problem"), why, 0 if done else 5)
+        if a.dry and not report.get("dryReady"):
+            why = "주문 직전 화면 준비 조건 미충족: " + why
+        if a.hold:
+            # A click or HTTP 200 alone is not evidence of an order. Observe the
+            # site's actual response, without persisting its identifier or PII.
+            until = time.monotonic() + 10
+            while time.monotonic() < until and not trace.order_created:
+                page.wait_for_timeout(100)
+            report["orderCreated"] = trace.order_created
+            report["holdVerified"] = False
+            report["manualPaymentRequired"] = trace.order_created
+            report["seconds"] = round(time.time() - t0, 2)
+            done = done and trace.order_created
+            why = "주문 응답 확인; 결제는 수동, 좌석 보장 여부는 별도 확인" if done else "주문 성공 응답을 확인하지 못함; 중복 주문 방지를 위해 자동 재시도하지 않음"
+        if a.payment_window and done:
+            from payment_window import inspect_payment_window
+            observed = {'ready': False}
+            until = time.monotonic() + 90
+            notified = False
+            while time.monotonic() < until:
+                for candidate in ctx.pages:
+                    if candidate in original_pages or candidate.is_closed():
+                        continue
+                    observed = inspect_payment_window(candidate)
+                    if observed.get('ready'):
+                        break
+                if observed.get('ready'):
+                    break
+                if not notified:
+                    log('결제창 로딩/로그인 확인 대기. 이 창에는 자동 클릭을 수행하지 않습니다.')
+                    notified = True
+                page.wait_for_timeout(500)
+            report['paymentWindow'] = observed
+            report['payWindowReady'] = observed.get('ready') is True
+            report['seconds'] = round(time.time() - t0, 2)
+            report['paymentApprovalClicked'] = False
+            done = done and report['payWindowReady']
+            why = '결제창 표시 확인; 최종 결제 승인하지 않음' if done else '실제 결제창 표시를 확인하지 못함'
+        ok = done and not report.get("problem")
+        try: page.screenshot(path=str(OUT / "autorun_end.png"))
+        except Exception: pass
+        trace.save()
+        if hybrid:
+            report["hybrid"] = hybrid.report
+            hybrid.close()
+        return finish(ok, why, 0 if ok else 5)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as e:
+        sys.exit(finish(False, f"실행 예외: {type(e).__name__}: {str(e)[:160]}", 9))

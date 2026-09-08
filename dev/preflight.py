@@ -61,7 +61,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--route", default="")
     ap.add_argument("--from", dest="origin", default="")
-    ap.add_argument("--ports", default="9222,9223")
+    ap.add_argument("--ports", default="9232,9233")
     ap.add_argument("--quick", action="store_true",
                     help="크롬이 떠 있나만 본다 (아침용, 20초). 셋업은 안 한다")
     ap.add_argument("--for-tomorrow", action="store_true",
@@ -94,7 +94,7 @@ def main() -> int:
 
     from playwright.sync_api import sync_playwright
     for port in [int(p) for p in a.ports.split(",")]:
-        tag = "실전" if port == 9222 else "계측"
+        tag = "실전" if port == 9232 else "계측"
         info = {"chrome": False, "loggedIn": False, "ready": False, "why": ""}
         result["ports"][str(port)] = info
 

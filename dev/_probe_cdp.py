@@ -44,16 +44,16 @@ if port:
     finally:
         c.close()
 
-# 3) 크롬 CDP(9222) 붙기 - 크롬이 떠 있으면
+# 3) 크롬 CDP(9232) 붙기 - 크롬이 떠 있으면
 c = socket.socket(); c.settimeout(3)
 try:
-    c.connect(("127.0.0.1", 9222)); c.close()
-    body = urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=3).read().decode()
+    c.connect(("127.0.0.1", 9232)); c.close()
+    body = urllib.request.urlopen("http://127.0.0.1:9232/json/version", timeout=3).read().decode()
     res["cdp"] = json.loads(body).get("Browser", "OK")
-    say(f"[3] 크롬 CDP(9222)        : OK  ({res['cdp']})")
+    say(f"[3] 크롬 CDP(9232)        : OK  ({res['cdp']})")
 except Exception as e:
     res["cdp"] = f"FAIL: {e}"
-    say(f"[3] 크롬 CDP(9222)        : FAIL  {e}")
+    say(f"[3] 크롬 CDP(9232)        : FAIL  {e}")
 
 out = Path(__file__).resolve().parent.parent / "dev-shots" / "_probe_cdp.json"
 out.parent.mkdir(exist_ok=True)

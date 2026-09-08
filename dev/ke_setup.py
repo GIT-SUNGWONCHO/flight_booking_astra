@@ -50,24 +50,30 @@ def nearest_future(mmdd: str) -> date:
     raise ValueError(f"날짜를 못 읽음: {mmdd}")
 
 
-def run_setup(cmd, deadline: datetime, log=print, gap: float = 3.0, min_tries: int = 2):
+def run_setup(cmd, deadline: datetime, log=print, gap: float = 3.0, min_tries: int = 0):
     """setup.py 를 마감까지 반복 실행한다. 마지막 결과 dict 를 돌려준다.
 
     cmd       setup.py 실행 인자 리스트
     deadline  이 시각을 넘기면 더 시도하지 않는다 (보통 발사 90초 전)
-    min_tries 마감이 이미 지났어도 최소 이만큼은 해본다 (손으로 늦게 돌릴 때)
+    min_tries retained for callers; it never overrides the hard deadline.
     """
     st, n = {}, 0
     while True:
+        left = (deadline - datetime.now(KST)).total_seconds()
+        if left <= 0:
+            return {"ok": False, "why": "준비 마감시간 초과", "attempts": n}
         n += 1
         out = ""
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=420)
+            r = subprocess.run(cmd, capture_output=True, text=True,
+                               encoding="utf-8", errors="replace", timeout=min(420, left))
             out = (r.stdout or "")
             if r.stderr:
                 out += NL + "[stderr] " + r.stderr
-            tail = out.strip().splitlines()
+            tail = (r.stdout or "").strip().splitlines()
             st = json.loads(tail[-1]) if tail else {}
+            if not isinstance(st, dict) or r.returncode != 0:
+                st = {"ok": False, "why": st.get("why", "setup 비정상 종료") if isinstance(st, dict) else "setup 결과 형식 오류"}
         except Exception as e:
             st = {"ok": False, "why": f"setup 실행 실패: {e}"[:90]}
 
@@ -86,6 +92,8 @@ def run_setup(cmd, deadline: datetime, log=print, gap: float = 3.0, min_tries: i
                 log("    | " + line.rstrip())
 
         if st.get("ok"):
+            if datetime.now(KST) >= deadline:
+                return {"ok": False, "why": "준비 완료가 마감시간을 넘김"}
             if n > 1:
                 log(f"  셋업 {n}회째에 성공")
             return st
@@ -96,9 +104,9 @@ def run_setup(cmd, deadline: datetime, log=print, gap: float = 3.0, min_tries: i
             return st
 
         left = (deadline - datetime.now(KST)).total_seconds()
-        if left <= 0 and n >= min_tries:
+        if left <= 0:
             log(f"  셋업 {n}회 모두 실패({why}) - 마감")
             return st
         log(f"  셋업 {n}회 실패({why}) - 다시 (마감까지 {max(left, 0):.0f}초)")
         if gap:
-            time.sleep(gap)
+            time.sleep(min(gap, max(0, left)))

@@ -10,9 +10,10 @@
   하필 오늘 실패한 부분을 건너뛰는 스위치였다.
 
 그래서 이 스크립트는 타협하지 않는다
-  - 크롬을 죽이고 새로 띄운다 (부팅 직후와 같은 차가운 상태)
+  - 전용 크롬을 재시작한다 (OS 재부팅 검증은 별도로 필요)
   - 09:00 에 도는 것과 **같은 진입점**(daily.py)을 쓴다
-  - 발사 시각만 '지금+N분' 으로 바꾼다. --dry 라 주문은 안 생긴다
+  - 발사 시각만 '지금+N분' 으로 바꾼다. 기본은 실제 결제창까지 진행한다
+  - --partial-dry 는 주문 직전 부분 점검이며 전체 리허설 통과가 아니다
   - 리포트를 읽어 실제로 발사했는지 확인한다. '오류 없음' 은 통과가 아니다
 
 사용:
@@ -23,6 +24,7 @@ from __future__ import annotations
 import argparse, json, os, re, shutil, subprocess, sys, time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from runtime import new_run, output_dir, validate_rehearsal, atomic_json
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "dev-shots"
@@ -104,9 +106,15 @@ def main() -> int:
     ap.add_argument("--minutes", type=int, default=9, help="지금부터 몇 분 뒤에 발사할까")
     ap.add_argument("--route", default="")
     ap.add_argument("--from", dest="origin", default="")
+    ap.add_argument("--cabin", default="일반석")
+    ap.add_argument("--start", default="calendar", choices=["calendar", "departure"])
+    ap.add_argument("--max-seconds", type=float, default=90)
+    ap.add_argument("--partial-dry", action="store_true", help="주문 직전까지만 부분 점검; 전체 리허설 통과로 간주하지 않음")
+    ap.add_argument("--no-watch", action="store_true", help="계측용 계정 없이 매크로 dry와 수동 네트워크 기록만 시험")
     ap.add_argument("--keep-browsers", action="store_true",
                     help="크롬을 죽이지 않는다. 차가운 상태가 아니게 되므로 권하지 않는다")
     a = ap.parse_args()
+    mode = 'dry' if a.partial_dry else 'payment-window'
 
     args = ["--route", a.route] + (["--from", a.origin] if a.origin else []) \
         if a.route else day_args()
@@ -116,56 +124,56 @@ def main() -> int:
     if a.keep_browsers:
         log("크롬 유지 (차가운 상태 아님 - 실전과 다르다)")
     else:
-        log("크롬 죽이고 새로 띄운다 (부팅 직후와 같은 조건)")
+        log("전용 크롬을 재시작합니다 (OS 재부팅 검증은 별도)")
         # text=True 만 주면 파이썬이 utf-8 로 읽는데 윈도우 콘솔 도구는 cp949 로 쓴다.
         # taskkill 의 한글 출력에서 UnicodeDecodeError 가 났다. (09-07)
-        run_quiet(["taskkill", "/F", "/IM", "chrome.exe"])
-        time.sleep(3)
+        log("이 worktree의 9232/9233 프로필만 재시작합니다")
 
     shell = find_shell()
     if not shell:
         log("!! 파워셸을 찾지 못했다 - 크롬을 띄울 수 없다")
         return 1
-    run_quiet([shell, "-NoProfile", "-File", str(ROOT / "dev" / "browsers.ps1")])
+    boot = run_quiet([shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ROOT / "dev" / "astra_browsers.ps1")]
+                     + ([] if a.keep_browsers else ["-Restart"])
+                     + (["-Port", "9232"] if a.no_watch else []))
+    if boot.returncode != 0:
+        log("브라우저 준비 실패: " + boot.stderr[-500:])
+        return 1
 
     # --- 2) 9시에 도는 것과 같은 진입점 ---
-    for f in ("watch_seats.json", "autorun_report.json"):
-        try: (OUT / f).unlink()
-        except Exception: pass
+    identity = new_run()
+    folder = output_dir()
 
     tgt = open_target(args)
     fire = datetime.now(KST) + timedelta(minutes=a.minutes)
-    log(f"발사 예정 {fire.strftime('%H:%M:%S')} (지금+{a.minutes}분) / 출발일 {tgt} / dry")
+    log(f"발사 예정 {fire.strftime('%H:%M:%S')} (지금+{a.minutes}분) / 출발일 {tgt} / {mode}")
     cmd = [sys.executable, str(ROOT / "dev" / "daily.py")] + args + \
           ["--at", f"+{a.minutes * 60}s", "--setup-at", "+5s",
-           "--date", tgt.strftime("%m-%d")]
+           "--date", tgt.strftime("%m-%d"), "--cabin", a.cabin, "--start", a.start, "--mode", mode]
+    if a.no_watch:
+        cmd.append("--no-watch")
     r = subprocess.run(cmd, capture_output=True, text=True,
                        timeout=(a.minutes + 8) * 60)
     print(r.stdout[-3000:])
 
-    # --- 3) 리포트로 판정한다. 로그에 오류가 없다는 것은 통과가 아니다 ---
-    fails, notes = [], []
-
-    w = {}
-    try: w = json.loads((OUT / "watch_seats.json").read_text(encoding="utf-8"))
-    except Exception: fails.append("계측기 리포트가 없다 - 아예 안 돌았다")
-    if w:
-        if not w.get("ok") and not w.get("samples"):
-            fails.append(f"계측기 실패: {w.get('why')}")
-        elif not w.get("samples"):
-            fails.append("계측기가 한 건도 측정하지 못했다")
-        else:
-            notes.append(f"계측기 {w.get('samples')}건 측정")
-
-    m = {}
-    try: m = json.loads((OUT / "autorun_report.json").read_text(encoding="utf-8"))
-    except Exception: fails.append("매크로 리포트가 없다 - 아예 안 돌았다")
-    if m:
-        if (m.get("idx") or 0) < 2:
-            fails.append(f"매크로가 발사하지 못했다 (idx={m.get('idx')}): {m.get('why')}")
-        else:
-            notes.append(f"매크로 {m.get('idx')}단계 도달, {m.get('seconds')}초 / {(m.get('why') or '')[:60]}")
-
+    # Strict contract: no missing, empty, stale or partial result can pass.
+    def read_result(name):
+        try:
+            value = json.loads((folder / name).read_text(encoding="utf-8"))
+            return value if isinstance(value, dict) else {}
+        except (OSError, ValueError):
+            return {}
+    w, m = read_result("watch_seats.json"), read_result("autorun_report.json")
+    notes = [f"매크로 {m.get('idx')}단계, {m.get('seconds')}초 / {m.get('why') or ''}"]
+    if not a.no_watch:
+        notes.append(f"계측기 {w.get('samples')}건")
+    fails = validate_rehearsal(w, m, identity, a.max_seconds, require_watch=not a.no_watch, mode=mode)
+    if r.returncode:
+        fails.append(f"daily 비정상 종료: {r.returncode}")
+    atomic_json(folder / "rehearsal_report.json", {"runId": identity, "ok": not fails,
+                "coldBrowser": not a.keep_browsers, "cabin": a.cabin, "failures": fails,
+                "partial": a.partial_dry,
+                "coverage": "dry 6단계 부분 점검" if a.partial_dry else "실제 결제창 표시; 최종 결제 승인 제외"})
     print()
     print("=" * 64)
     if fails:
@@ -174,13 +182,13 @@ def main() -> int:
         for n in notes: print("   . " + n)
         print("=" * 64)
         return 1
-    print("  리허설 통과 (차가운 크롬 -> 로그인 -> 발사 -> 조회 화면)")
+    print("  부분 dry 점검 통과 (전체 리허설 아님)" if a.partial_dry else "  리허설 통과 (로그인 -> 발사 -> 실제 결제창 표시)")
     for n in notes: print("   O " + n)
     # 통과를 '다 된다' 로 읽지 않게, 무엇을 안 봤는지 매번 같이 찍는다.
     print("  * 여기까지만 봤다. 실전과 다른 점:")
     print("    - 09:00 이 아니라 이미 열린 날짜로 쐈다 - '경쟁' 은 재지 못한다.")
-    print("    - 그 날짜는 프레스티지가 늘 매진이라 매크로가 2단계에서 멈춘다.")
-    print("      결제까지 가는 길(3~17단계)은 리허설이 보지 않는다. (BACKLOG 10)")
+    print("    - 최종 결제 승인은 수행하지 않았다. 신규 개방일의 실전 경쟁은 별도 검증이다.")
+    print(f"    - coldBrowser={not a.keep_browsers}; 결과: {folder}")
     print("=" * 64)
     return 0
 

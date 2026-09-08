@@ -1,0 +1,119 @@
+"""Regression tests for real operational failures, without a live account."""
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from datetime import datetime, timedelta
+from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dev"))
+import runtime
+import ke_setup
+import daily
+from network_trace import order_id_observed
+from hybrid import request_matches
+
+
+class RuntimeTests(unittest.TestCase):
+    def test_http_success_or_echo_does_not_prove_an_order(self):
+        self.assertFalse(order_id_observed({}))
+        self.assertFalse(order_id_observed({'error': {'request': {'orderId': 'old'}}}))
+        self.assertFalse(order_id_observed({'orderId': 'old', 'errorCode': 'failed'}))
+        self.assertTrue(order_id_observed({'orderId': 'fixture-order'}))
+
+    def test_worker_failure_overrides_success_json(self):
+        class Failed:
+            returncode = 1
+            pid = 98765
+            def poll(self): return 1
+            def wait(self, timeout=None): return 1
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            (folder / 'autorun_report.json').write_text(json.dumps({'runId': 'test', 'ok': True}))
+            with patch.dict(os.environ, {'KE_RUN_ID': 'test'}), \
+                 patch.object(sys, 'argv', ['daily', '--at', '+60s', '--no-watch', '--date', '09-01']), \
+                 patch.object(daily, 'output_dir', return_value=folder), \
+                 patch.object(daily, 'measure_clock', return_value={'ok': True}), \
+                 patch.object(daily.subprocess, 'Popen', return_value=Failed()):
+                self.assertEqual(daily.main(), 1)
+            self.assertFalse(json.loads((folder / 'daily_report.json').read_text())['ok'])
+
+    def test_past_fire_is_not_silently_tomorrow(self):
+        now = datetime(2026, 9, 8, 9, 1, tzinfo=runtime.KST)
+        with self.assertRaises(ValueError):
+            runtime.resolve_time("09:00", now)
+        self.assertEqual(runtime.resolve_time("2026-09-09T09:00:00+09:00", now).day, 9)
+
+    def test_expired_setup_does_not_start_even_min_tries(self):
+        with patch.object(ke_setup.subprocess, "run") as run:
+            result = ke_setup.run_setup(["ignored"], datetime.now(runtime.KST)-timedelta(seconds=1), min_tries=2)
+            self.assertFalse(result["ok"])
+            run.assert_not_called()
+
+    def test_setup_timeout_uses_remaining_budget(self):
+        with patch.object(ke_setup.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, '{"ok":true}', 'warning')) as run:
+            result = ke_setup.run_setup(["ignored"], datetime.now(runtime.KST)+timedelta(seconds=2))
+            self.assertTrue(result["ok"])
+            self.assertLessEqual(run.call_args.kwargs["timeout"], 2)
+
+    def test_empty_stale_partial_and_slow_are_failures(self):
+        watch = {"runId":"test", "ok":True, "samples":2}
+        good = {"runId":"test", "ok":True, "dry":True, "total":6, "idx":6,
+                "problem":False, "dryReady":True, "seconds":15}
+        self.assertEqual(runtime.validate_rehearsal(watch, good, "test", 30, mode='dry'), [])
+        self.assertTrue(runtime.validate_rehearsal(watch, good, 'test'))
+        for bad in ({}, {**good,"runId":"yesterday"}, {**good,"idx":2},
+                    {**good,"problem":True}, {**good,"seconds":76}, {**good,"dryReady":False}):
+            self.assertTrue(runtime.validate_rehearsal(watch, bad, "test", 30, mode='dry'))
+        self.assertTrue(runtime.validate_rehearsal({**watch,"ok":False}, good, "test", 30, mode='dry'))
+
+    def test_rehearsal_requires_real_payment_window(self):
+        good = {'runId':'test', 'ok':True, 'problem':False, 'seconds':45,
+                'dry':False, 'paymentWindowTest':True, 'total':17, 'idx':17,
+                'payWindowReady':True, 'paymentApprovalClicked':False}
+        self.assertEqual(runtime.validate_rehearsal({}, good, 'test', require_watch=False), [])
+        for change in ({'payWindowReady':False}, {'idx':6}, {'paymentApprovalClicked':True},
+                       {'paymentWindowTest':False}, {'seconds':120}, {'runId':'old'}):
+            self.assertTrue(runtime.validate_rehearsal({}, {**good, **change}, 'test', require_watch=False))
+
+    def test_ready_url_cannot_hide_dead_worker(self):
+        class Dead:
+            returncode = 2
+            def poll(self): return 2
+        self.assertTrue(daily.checkpoint({"macro":Dead()}, "test", Path("unused"), "09-04", "time"))
+
+    def test_ready_accepts_windows_child_pid_but_rejects_foreign_worker(self):
+        class Live:
+            pid = 1
+            worker_token = 'worker-a'
+            def poll(self): return None
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            state = {'runId':'test', 'pid':2, 'workerToken':'worker-a', 'state':'ready',
+                     'at':datetime.now(runtime.KST).isoformat(), 'date':'09-04', 'fireAt':'time'}
+            runtime.atomic_json(folder/'macro_status.json', state)
+            self.assertEqual(daily.checkpoint({'macro':Live()}, 'test', folder, '09-04', 'time'), [])
+            state['workerToken'] = 'foreign-worker'
+            runtime.atomic_json(folder/'macro_status.json', state)
+            self.assertTrue(daily.checkpoint({'macro':Live()}, 'test', folder, '09-04', 'time'))
+
+    def test_atomic_result_is_valid_json(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder)/"result.json"
+            runtime.atomic_json(path, {"runId":"a", "ok":False})
+            runtime.atomic_json(path, {"runId":"b", "ok":True})
+            self.assertEqual(json.loads(path.read_text())["runId"], "b")
+            self.assertEqual(len(list(Path(folder).iterdir())), 1)
+
+    def test_hybrid_never_matches_changed_ticket_or_date(self):
+        source = {"url":"https://example.test/calendar", "req":{"method":"POST", "body":'{"date":"20270904"}', "headers":{"X-Ticket":"a"}}}
+        self.assertTrue(request_matches(source, source["url"], "POST", source["req"]["body"], {"x-ticket":"a"}))
+        self.assertFalse(request_matches(source, source["url"], "POST", source["req"]["body"], {"x-ticket":"b"}))
+        self.assertFalse(request_matches(source, source["url"], "POST", '{"date":"20270903"}', {"x-ticket":"a"}))
+        self.assertFalse(request_matches(source, source["url"]+"/order", "POST", source["req"]["body"], {"x-ticket":"a"}))
+
+if __name__ == "__main__":
+    unittest.main()

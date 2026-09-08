@@ -17,7 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "dev-shots"
-CDP = "http://localhost:9222"
+CDP = "http://localhost:9232"
 KST = timezone(timedelta(hours=9))
 
 CHECK = """(day) => {

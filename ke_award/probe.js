@@ -265,7 +265,7 @@
   /* 고른 등급(예: '프레스티지')이 대한항공 운항편에서 매진인지 서버 응답으로 판정한다.
    *
    * 화면에는 "매진" 글자뿐이라 "아직 안 열림" 과 구분이 안 된다. 서버는 명확하다:
-   * commercialFareFamilyList 의 KEBONUSPR 이 soldout:true 면 팔린 것이다.
+   * soldout:true 는 해당 응답에서 예약 불가라는 뜻이다. 이전 개방/판매는 입증하지 않는다.
    *
    * 코드셰어(에어프랑스 운항 KE5901 등)는 제외한다 - 우리는 대한항공만 탄다.
    * 날짜(mmdd, 예 "08-27")를 주면 그 날 응답만 본다. 낡은 다른 날 응답에 속지 않게.
@@ -281,6 +281,7 @@
     /* 가장 최근 응답부터(뒤에서 앞으로) 훑어, 그 날짜를 담은 응답 하나를 쓴다. */
     for (var i = hits.length - 1; i >= 0 && !res; i--) {
       if (!/availab/i.test(hits[i].url)) continue;
+      if (hits[i].status !== 200) continue;
       var d; try { d = JSON.parse(hits[i].body); } catch (e) { continue; }
       var bounds = (d && d.upsellBoundAvailList) || [];
       var listed = false, openSeats = 0, soldCount = 0, keCount = 0, ey = 0, dateSeen = false;
@@ -307,6 +308,7 @@
       });
       if (!dateSeen && want) continue;              // 이 응답엔 그 날짜가 없다 - 더 옛 응답을 본다
       res = {
+        responseAt: hits[i].at,
         answered: true,
         keFlights: keCount,
         listed: listed,

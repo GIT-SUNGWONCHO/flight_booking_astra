@@ -82,7 +82,7 @@
      * 브라우저가 스크립트로 만든 클릭(isTrusted=false)에는 사용자 조작 권한을
      * 주지 않아 새 창을 막는 경우가 있는데, 그러면 "눌렀다" 는 로그만 남는다.
      * 그래서 재생이 끝나면 결제창이 실제로 떴는지 확인하라고 알린다. */
-    allowPay: true,
+    allowPay: false,
     times: [],            // 단계별 소요시간 [{n, label, ms}]. 어디서 시간을 쓰는지
                           // 추측하지 않고 재기 위한 것 - 페이지 이동을 넘어 유지된다
     stepStartedAt: 0,     // 지금 단계를 시작한 시각
@@ -773,6 +773,25 @@
     if (isPay(step) && !S.allowPay) {
       pause('결제 단계입니다 - 직접 확인하고 누르세요');
       return;
+    }
+
+    if (step.requireSelectedCabin) {
+      var selection = U.cabinSelection(S.cabin);
+      if (!selection.ready) {
+        phase('운임 선택 확인', now);
+        beganWaiting(now);
+        if (tooLong(S.stepTimeoutMs)) {
+          finish('선택한 운임과 총액이 반영되지 않았습니다 - 다음 단계로 진행하지 않음', true);
+          return;
+        }
+        if (!selection.checked && selection.el && U.hittable(selection.el)
+            && now - lastClickAt >= S.retryClickMs) {
+          U.fireClick(selection.el);
+          lastClickAt = now;
+          log('운임 선택이 해제되어 목표 등급을 다시 선택합니다');
+        }
+        return;
+      }
     }
 
     /* 앞 단계 결과가 반영되기 전에 누르면 클릭이 무시된다. 화면이 잠잠해질 때까지

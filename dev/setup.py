@@ -20,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 USER = ROOT / "userscript" / "ke-award-macro.user.js"
-CDP = "http://localhost:9222"
+CDP = "http://localhost:9232"
 CAL = "/booking/calendar-fare-bonus"
 
 
@@ -49,7 +49,7 @@ def load_env() -> dict:
 
 
 def login_naver(page, inject) -> bool:
-    """네이버 연동으로 로그인한다 (9223 본인 계정).
+    """네이버 연동으로 로그인한다 (9233 본인 계정).
 
     네이버 쪽 세션(NID_AUT/NID_SES)이 살아 있으면 버튼 두 번으로 끝난다 -
     비밀번호를 치는 게 아니다. 네이버가 비밀번호를 물으면 사람이 해야 한다.
@@ -93,7 +93,7 @@ def login_naver(page, inject) -> bool:
 
 
 def login_idpw(page, inject, user: str, pw: str, tab: str = "") -> bool:
-    """대한항공 자체 로그인 (9222 와이프 계정).
+    """대한항공 자체 로그인 (9232 와이프 계정).
 
     **로그인 화면에는 탭이 두 개다** - `아이디` / `스카이패스 번호`.
     기본은 `아이디` 탭이라, 스카이패스 번호를 그냥 넣으면
@@ -111,30 +111,62 @@ def login_idpw(page, inject, user: str, pw: str, tab: str = "") -> bool:
         page.wait_for_timeout(3000)
         inject()
 
+    # A new profile has a cookie-consent overlay; old warm profiles did not.
+    # The label and submit class were observed on the isolated live login page.
+    consent = page.get_by_text("필수 쿠키만 허용", exact=True)
+    if consent.count() and consent.first.is_visible():
+        consent.first.click(timeout=10000)
     want = tab or ("스카이패스" if user.isdigit() else "아이디")
-    picked = page.evaluate("""(want) => {
-      const tabs = [...document.querySelectorAll('button[role=tab]')]
-        .filter(e => { const r = e.getBoundingClientRect(); return r.width > 1; });
-      const hit = tabs.find(e => (e.innerText || '').replace(/\\s+/g, ' ').includes(want));
-      if (!hit) return 'tab못찾음:' + tabs.map(e => (e.innerText||'').trim()).join('/');
-      if (hit.getAttribute('aria-selected') === 'true') return 'already:' + want;
-      hit.click();
-      return 'clicked:' + want;
-    }""", want)
-    log(f"로그인 탭: {picked}")
+
+    # 탭이 그려질 때까지 기다린다. 로그인 페이지로 **리다이렉트된 직후**에는 탭이
+    # 아직 없어서 'tab못찾음:' (콜론 뒤가 빈 문자열)이 뜨고, 그대로 기본 '아이디'
+    # 탭에 스카이패스 번호를 넣어 "일치하는 회원정보가 없습니다" 로 끝난다.
+    # 09-08 아침 자동 실행이 이것으로 죽었다 - 어제는 페이지가 이미 떠 있어 통했다.
+    picked = None
+    for _ in range(20):
+        picked = page.evaluate("""(want) => {
+          const tabs = [...document.querySelectorAll('button[role=tab]')]
+            .filter(e => { const r = e.getBoundingClientRect(); return r.width > 1; });
+          if (!tabs.length) return null;                       // 아직 안 그려짐
+          const hit = tabs.find(e => (e.innerText || '').replace(/\\s+/g, ' ').includes(want));
+          if (!hit) return 'tab못찾음:' + tabs.map(e => (e.innerText||'').trim()).join('/');
+          if (hit.getAttribute('aria-selected') === 'true') return 'already:' + want;
+          hit.click();
+          return 'clicked:' + want;
+        }""", want)
+        if picked:
+            break
+        page.wait_for_timeout(700)
+    log(f"로그인 탭: {picked or '탭이 끝내 안 나타남'}")
+    if not picked or picked.startswith("tab못찾음"):
+        # 여기서 멈춘다. 엉뚱한 탭에 번호를 넣으면 사이트가 '회원정보 없음' 으로
+        # 답하고, 그 문구만 보면 비밀번호가 틀린 줄 안다. 09-08 에 그렇게 헤맸다.
+        return False
     page.wait_for_timeout(1500)   # 탭을 바꾸면 입력칸이 새로 그려진다(id 도 바뀐다)
+
+    # 고른 탭이 실제로 선택됐는지 확인한다. 클릭이 먹지 않았는데 진행하면 같은 일이 난다.
+    sel = page.evaluate("""() => {
+      const t = [...document.querySelectorAll('button[role=tab]')]
+        .find(e => e.getAttribute('aria-selected') === 'true');
+      return t ? (t.innerText || '').replace(/\\s+/g, ' ').trim() : '';
+    }""")
+    log(f"  선택된 탭: {sel or '(없음)'}")
+    if want not in sel:
+        log(f"  탭이 '{want}' 로 안 바뀌었다 - 중단")
+        return False
 
     try:
         page.fill("input[type=text]:visible", user, timeout=15000)
         page.fill("input[type=password]:visible", pw, timeout=15000)
+        page.locator("input[type=password]:visible").blur()
+        if (page.locator("input[type=text]:visible").input_value() != user
+                or page.locator("input[type=password]:visible").input_value() != pw):
+            log("로그인 폼 재렌더로 입력값이 유지되지 않았습니다")
+            return False
     except Exception as e:
         log(f"로그인 입력칸을 채우지 못함: {str(e)[:60]}")
         return False
-    page.evaluate("""() => {
-      const U = window.KE_UTIL;
-      const b = U.candidates(document).find(e => U.visible(e) && /^로그인$/.test(U.label(e)));
-      if (b) U.fireClick(b);
-    }""")
+    page.locator("button.login__submit-act").click(timeout=10000)
     for _ in range(16):
         page.wait_for_timeout(1500)
         try:
@@ -179,7 +211,7 @@ def main() -> int:
         i = args.index("--date")
         want_date = args[i + 1]
         del args[i:i + 2]
-    # 붙을 크롬. 계측기는 2번 크롬(9223)을 쓴다 - 실전 예약(9222)과 프로필을 나눠야
+    # 붙을 크롬. 계측기는 2번 크롬(9233)을 쓴다 - 실전 예약(9232)과 프로필을 나눠야
     # 쿠키·localStorage 가 안 섞이고 9시에 둘을 동시에 돌릴 수 있다.
     cdp = CDP
     if "--port" in args:
@@ -205,7 +237,7 @@ def main() -> int:
             return 1
         ctx = b.contexts[0]
         js = USER.read_text(encoding="utf-8")
-        ctx.add_init_script(js)
+        ctx.add_init_script("if (location.hostname === 'www.koreanair.com') {\n" + js + "\n}")
         pages = [p for p in ctx.pages if "koreanair" in p.url]
         while len(pages) <= tab:            # 원하는 번째 탭이 없으면 만든다
             pages.append(ctx.new_page())
@@ -252,10 +284,13 @@ def main() -> int:
             # 세션이 만료됐으면 네이버 연동으로 다시 들어간다. 네이버 쪽 세션이 살아
             # 있으면 버튼 두 번으로 끝난다 - 비밀번호를 치는 게 아니다.
             # 비밀번호 입력칸이 뜨면 거기서 멈춘다. 그건 사람이 해야 한다.
-            # 어느 방법으로 들어갈지: 실전(9222)은 와이프 스카이패스 아이디/비밀번호,
-            # 계측(9223)은 본인 네이버 연동. .env 에 값이 있어야 아이디/비밀번호를 쓴다.
+            # 어느 방법으로 들어갈지: 실전(9232)은 와이프 스카이패스 아이디/비밀번호,
+            # 계측(9233)은 본인 네이버 연동. .env 에 값이 있어야 아이디/비밀번호를 쓴다.
             env = load_env()
-            use_idpw = ("9222" in cdp) and env.get("KE_SKYPASS_ID") and env.get("KE_SKYPASS_PW")
+            if "9232" in cdp and not (env.get("KE_SKYPASS_ID") and env.get("KE_SKYPASS_PW")):
+                print(json.dumps({"ok": False, "why": "로그인 필요: 실전 계정 자격정보 누락; 다른 로그인 방식으로 전환하지 않음"}, ensure_ascii=False))
+                return 2
+            use_idpw = ("9232" in cdp) and env.get("KE_SKYPASS_ID") and env.get("KE_SKYPASS_PW")
             if use_idpw:
                 log("로그아웃 상태 - 스카이패스 아이디/비밀번호로 로그인 시도 (.env)")
                 did_login = True
@@ -264,7 +299,7 @@ def main() -> int:
                     logged = True
                     log("스카이패스 로그인 성공")
                 else:
-                    # 네이버로 넘어가지 않는다. 9222 는 와이프 스카이패스 계정이고
+                    # 네이버로 넘어가지 않는다. 9232 는 와이프 스카이패스 계정이고
                     # 네이버는 본인 계정이라 **다른 사람으로 로그인**된다.
                     # 게다가 네이버로 넘어가면 화면이 바뀌어 실패 이유를 잃는다.
                     log("스카이패스 로그인 실패 - 네이버로 넘어가지 않는다(계정이 다르다)")

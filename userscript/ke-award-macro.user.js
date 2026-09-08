@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         대한항공 마일리지 예매 보조 (KE Award Macro)
 // @namespace    local.ke.award
-// @version      1.78.0-dirty
+// @version      1.79.0-dirty
 // @description  예매 단계 녹화/재생 + 오픈시각 정시 발사 + 안내사항 모달 즉시 통과
 // @author       local
 // @match        *://*.koreanair.com/*
@@ -517,6 +517,19 @@ try {
     return !findCabin(cabin) && !!findCabin(cabin, { anyCarrier: true });
   }
 
+  // A click can be lost during the currency redraw. Confirm both the actual
+  // radio and the application's nonzero mileage total before submitting Next.
+  function cabinSelection(cabin) {
+    var el = findCabin(cabin);
+    var id = el && el.getAttribute('for');
+    var input = id ? document.getElementById(id) : null;
+    var checked = !!(input && input.type === 'radio' && input.checked);
+    var widget = document.querySelector('#payment-widget');
+    var match = label(widget).match(/([0-9][0-9,]*)\s*마일/);
+    var priced = !!(match && Number(match[1].replace(/,/g, '')) > 0);
+    return {el: el, checked: checked, priced: priced, ready: checked && priced};
+  }
+
   /** 조회 결과(운임 카드)가 화면에 그려졌는가.
    *
    * "고른 등급이 없다" 와 "페이지가 아직 안 떴다" 는 전혀 다른 상황인데, findCabin 은
@@ -758,6 +771,7 @@ try {
     findLatestOpenDate: findLatestOpenDate, findOpenDate: findOpenDate,
     openDateCells: openDateCells, inChrome: inChrome, realTarget: realTarget,
     findCabin: findCabin, cabinListReady: cabinListReady, tabKey: tabKey,
+    cabinSelection: cabinSelection,
     operatedByKE: operatedByKE, cabinOnlyCodeshare: cabinOnlyCodeshare,
     scrollToBottom: scrollToBottom, hittable: hittable,
     monthDay: monthDay, sameDate: sameDate, findContaining: findContaining,
@@ -782,7 +796,7 @@ try {
 (function () {
   var W = window;
   try { if (typeof unsafeWindow !== 'undefined' && unsafeWindow) W = unsafeWindow; } catch (e) {}
-  var B = { version: '1.78.0-dirty', hash: 'ff69049-dirty' };
+  var B = { version: '1.79.0-dirty', hash: 'debee2a-dirty' };
   try { W.KE_BUILD = B; } catch (e) {}
   if (W !== window) { try { window.KE_BUILD = B; } catch (e) {} }
 })();
@@ -1060,7 +1074,7 @@ try {
   /* 고른 등급(예: '프레스티지')이 대한항공 운항편에서 매진인지 서버 응답으로 판정한다.
    *
    * 화면에는 "매진" 글자뿐이라 "아직 안 열림" 과 구분이 안 된다. 서버는 명확하다:
-   * commercialFareFamilyList 의 KEBONUSPR 이 soldout:true 면 팔린 것이다.
+   * soldout:true 는 해당 응답에서 예약 불가라는 뜻이다. 이전 개방/판매는 입증하지 않는다.
    *
    * 코드셰어(에어프랑스 운항 KE5901 등)는 제외한다 - 우리는 대한항공만 탄다.
    * 날짜(mmdd, 예 "08-27")를 주면 그 날 응답만 본다. 낡은 다른 날 응답에 속지 않게.
@@ -1076,6 +1090,7 @@ try {
     /* 가장 최근 응답부터(뒤에서 앞으로) 훑어, 그 날짜를 담은 응답 하나를 쓴다. */
     for (var i = hits.length - 1; i >= 0 && !res; i--) {
       if (!/availab/i.test(hits[i].url)) continue;
+      if (hits[i].status !== 200) continue;
       var d; try { d = JSON.parse(hits[i].body); } catch (e) { continue; }
       var bounds = (d && d.upsellBoundAvailList) || [];
       var listed = false, openSeats = 0, soldCount = 0, keCount = 0, ey = 0, dateSeen = false;
@@ -1102,6 +1117,7 @@ try {
       });
       if (!dateSeen && want) continue;              // 이 응답엔 그 날짜가 없다 - 더 옛 응답을 본다
       res = {
+        responseAt: hits[i].at,
         answered: true,
         keFlights: keCount,
         listed: listed,
@@ -1209,7 +1225,7 @@ try {
 // ---------- steps ----------
 try {
 (function () {
-  var S = [{"dynamicDate":true,"idPrefix":"dep-fare-","sel":"#dep-fare-5-1","text":"(날짜: 매번 최신 오픈일 자동 감지 - 16 08월 16일 (월) , 성수기 일반석 은 녹화 당시 예시)","tag":"td","url":"/booking/calendar-fare-bonus","selectorOnly":false},{"sel":"#ac0e9a2f7f9ead9dbd368853f47deb65CalendarFareBonusMain > div.payment-widget.bottom-fixed-area:nth-of-type(4) > kds-sticky.ang-sticky > kds-sticky_1.--wds-ui.ui-sticky__host > kds-button.--wds-ui.ui-button__host > kds-button_1.--wds-ui.ui-button__host","text":"검색","tag":"kds-button_1","url":"/booking/calendar-fare-bonus","selectorOnly":false},{"dynamicCabin":true,"sel":"","text":"(좌석: 패널에서 고른 등급을 매번 다시 찾음 - 녹화 당시는 '항공편명 KE901 일반석 52,500 마일')","tag":"label","url":"/booking/select-award-flight/departure","selectorOnly":false},{"ensure":"KRW","sel":"#currencyBtn","text":"통화","tag":"button","url":"/booking/select-award-flight/departure","selectorOnly":false,"optionSel":"#filter-currency > div.filter__contents > div.filter__list > div.selection.filter__item:nth-of-type(2) > label","applySel":"#filter-currency > div.filter__contents > button.filter__apply:nth-of-type(1)","applyText":"적용","restartFrom":0},{"sel":"#payment-widget > kds-sticky_1.--wds-ui.ui-sticky__host > kds-button > kds-button_1.--wds-ui.ui-button__host","text":"다음","tag":"kds-button_1","url":"/booking/select-award-flight/departure","selectorOnly":false},{"sel":"#submit-passenger-ADT-0","text":"확인","tag":"button","url":"/payment/gate/RT/NR","selectorOnly":false},{"sel":"#submit-contact","text":"확인","tag":"button","url":"/payment/gate/RT/NR","selectorOnly":false},{"sel":"#btn-resv-agree-1","text":"동의","tag":"button","url":"/payment/gate/RT/NR","selectorOnly":false},{"sel":"#btnScrollDown > kds-button_1.--wds-ui.ui-button__host","text":"아래로 스크롤","tag":"kds-button_1","url":"/payment/gate/RT/NR","selectorOnly":false},{"sel":"#btnConfirm > kds-button_1.--wds-ui.ui-button__host","text":"확인","tag":"kds-button_1","url":"/payment/gate/RT/NR","selectorOnly":false},{"sel":"#btn-resv-agree-3","text":"동의","tag":"button","url":"/payment/gate/RT/NR","selectorOnly":false},{"sel":"#btnScrollDown > kds-button_1.--wds-ui.ui-button__host","text":"아래로 스크롤","tag":"kds-button_1","url":"/payment/gate/RT/NR","selectorOnly":false},{"sel":"#btnConfirm > kds-button_1.--wds-ui.ui-button__host","text":"확인","tag":"kds-button_1","url":"/payment/gate/RT/NR","selectorOnly":false},{"sel":"#btnAwardUseMileageApply","text":"적용","tag":"button","url":"/payment/gate/RT/NR","selectorOnly":false},{"sel":"ke-payment-interface-cont._folders.ng-star-inserted > ke-payment-interface-pres.ng-star-inserted > div.bundles.-bordered > div.-lined.ng-star-inserted:nth-of-type(2) > div.payment-method.ng-star-inserted:nth-of-type(1) > div.payment-method__item.ng-star-inserted:nth-of-type(3) > label.ng-star-inserted","text":"Npay","tag":"label","url":"/payment/gate/RT/NR","selectorOnly":false,"alt":[{"sel":"","text":"한국발행 신용/체크카드","selectorOnly":false}]},{"ensure":"현대카드","onlyIfPrev":"한국발행","sel":"#sel-korCardCompany","text":"한국발행 신용/체크카드 종류","tag":"select","url":"/payment/gate/RT/NR","selectorOnly":true},{"sel":"#btn-payment","text":"결제하기 새 창 열림","tag":"button","url":"/payment/gate/RT/NR","selectorOnly":false}];
+  var S = [{"dynamicDate":true,"idPrefix":"dep-fare-","sel":"#dep-fare-5-1","text":"(날짜: 매번 최신 오픈일 자동 감지 - 16 08월 16일 (월) , 성수기 일반석 은 녹화 당시 예시)","tag":"td","url":"/booking/calendar-fare-bonus","selectorOnly":false},{"sel":"#ac0e9a2f7f9ead9dbd368853f47deb65CalendarFareBonusMain > div.payment-widget.bottom-fixed-area:nth-of-type(4) > kds-sticky.ang-sticky > kds-sticky_1.--wds-ui.ui-sticky__host > kds-button.--wds-ui.ui-button__host > kds-button_1.--wds-ui.ui-button__host","text":"검색","tag":"kds-button_1","url":"/booking/calendar-fare-bonus","selectorOnly":false},{"dynamicCabin":true,"sel":"","text":"(좌석: 패널에서 고른 등급을 매번 다시 찾음 - 녹화 당시는 '항공편명 KE901 일반석 52,500 마일')","tag":"label","url":"/booking/select-award-flight/departure","selectorOnly":false},{"ensure":"KRW","sel":"#currencyBtn","text":"통화","tag":"button","url":"/booking/select-award-flight/departure","selectorOnly":false,"optionSel":"#filter-currency > div.filter__contents > div.filter__list > div.selection.filter__item:nth-of-type(2) > label","applySel":"#filter-currency > div.filter__contents > button.filter__apply:nth-of-type(1)","applyText":"적용","restartFrom":0},{"sel":"#payment-widget > kds-sticky_1.--wds-ui.ui-sticky__host > kds-button > kds-button_1.--wds-ui.ui-button__host","text":"다음","requireSelectedCabin":true,"tag":"kds-button_1","url":"/booking/select-award-flight/departure","selectorOnly":false},{"sel":"#submit-passenger-ADT-0","text":"확인","tag":"button","url":"/payment/gate/RT/NR","selectorOnly":false},{"sel":"#submit-contact","text":"확인","tag":"button","url":"/payment/gate/RT/NR","selectorOnly":false},{"sel":"#btn-resv-agree-1","text":"동의","tag":"button","url":"/payment/gate/RT/NR","selectorOnly":false},{"sel":"#btnScrollDown > kds-button_1.--wds-ui.ui-button__host","text":"아래로 스크롤","tag":"kds-button_1","url":"/payment/gate/RT/NR","selectorOnly":false},{"sel":"#btnConfirm > kds-button_1.--wds-ui.ui-button__host","text":"확인","tag":"kds-button_1","url":"/payment/gate/RT/NR","selectorOnly":false},{"sel":"#btn-resv-agree-3","text":"동의","tag":"button","url":"/payment/gate/RT/NR","selectorOnly":false},{"sel":"#btnScrollDown > kds-button_1.--wds-ui.ui-button__host","text":"아래로 스크롤","tag":"kds-button_1","url":"/payment/gate/RT/NR","selectorOnly":false},{"sel":"#btnConfirm > kds-button_1.--wds-ui.ui-button__host","text":"확인","tag":"kds-button_1","url":"/payment/gate/RT/NR","selectorOnly":false},{"sel":"#btnAwardUseMileageApply","text":"적용","tag":"button","url":"/payment/gate/RT/NR","selectorOnly":false},{"sel":"ke-payment-interface-cont._folders.ng-star-inserted > ke-payment-interface-pres.ng-star-inserted > div.bundles.-bordered > div.-lined.ng-star-inserted:nth-of-type(2) > div.payment-method.ng-star-inserted:nth-of-type(1) > div.payment-method__item.ng-star-inserted:nth-of-type(3) > label.ng-star-inserted","text":"Npay","tag":"label","url":"/payment/gate/RT/NR","selectorOnly":false,"alt":[{"sel":"","text":"한국발행 신용/체크카드","selectorOnly":false}]},{"ensure":"현대카드","onlyIfPrev":"한국발행","sel":"#sel-korCardCompany","text":"한국발행 신용/체크카드 종류","tag":"select","url":"/payment/gate/RT/NR","selectorOnly":true},{"sel":"#btn-payment","text":"결제하기 새 창 열림","tag":"button","url":"/payment/gate/RT/NR","selectorOnly":false}];
   var W = window;
   try { if (typeof unsafeWindow !== 'undefined' && unsafeWindow) W = unsafeWindow; } catch (e) {}
   try { W.KE_STEPS_BAKED = S; } catch (e) {}
@@ -1307,7 +1323,7 @@ try {
      * 브라우저가 스크립트로 만든 클릭(isTrusted=false)에는 사용자 조작 권한을
      * 주지 않아 새 창을 막는 경우가 있는데, 그러면 "눌렀다" 는 로그만 남는다.
      * 그래서 재생이 끝나면 결제창이 실제로 떴는지 확인하라고 알린다. */
-    allowPay: true,
+    allowPay: false,
     times: [],            // 단계별 소요시간 [{n, label, ms}]. 어디서 시간을 쓰는지
                           // 추측하지 않고 재기 위한 것 - 페이지 이동을 넘어 유지된다
     stepStartedAt: 0,     // 지금 단계를 시작한 시각
@@ -1998,6 +2014,25 @@ try {
     if (isPay(step) && !S.allowPay) {
       pause('결제 단계입니다 - 직접 확인하고 누르세요');
       return;
+    }
+
+    if (step.requireSelectedCabin) {
+      var selection = U.cabinSelection(S.cabin);
+      if (!selection.ready) {
+        phase('운임 선택 확인', now);
+        beganWaiting(now);
+        if (tooLong(S.stepTimeoutMs)) {
+          finish('선택한 운임과 총액이 반영되지 않았습니다 - 다음 단계로 진행하지 않음', true);
+          return;
+        }
+        if (!selection.checked && selection.el && U.hittable(selection.el)
+            && now - lastClickAt >= S.retryClickMs) {
+          U.fireClick(selection.el);
+          lastClickAt = now;
+          log('운임 선택이 해제되어 목표 등급을 다시 선택합니다');
+        }
+        return;
+      }
     }
 
     /* 앞 단계 결과가 반영되기 전에 누르면 클릭이 무시된다. 화면이 잠잠해질 때까지

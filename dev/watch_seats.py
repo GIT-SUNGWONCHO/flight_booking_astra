@@ -22,7 +22,7 @@
   조회만 한다. 예약 단계는 밟지 않고 HUD 무장도 꺼둔다.
 
 사용:
-  .venv/Scripts/python.exe dev/watch_seats.py --route FCO --date 08-30 --at 09:00 --port 9223
+  .venv/Scripts/python.exe dev/watch_seats.py --route FCO --date 08-30 --at 09:00 --port 9233
 """
 from __future__ import annotations
 import argparse, json, subprocess, sys, time, traceback
@@ -31,10 +31,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ke_setup import nearest_future, run_setup
+from runtime import output_dir, run_id, atomic_json, resolve_time, heartbeat, measure_clock
 
 ROOT = Path(__file__).resolve().parent.parent
 USER = ROOT / "userscript" / "ke-award-macro.user.js"
-OUT = ROOT / "dev-shots"
+OUT = output_dir()
 KST = timezone(timedelta(hours=9))
 STRIP_SPAN = 3          # 조회 화면 날짜 띠가 품는 범위 (선택일 ±3일)
 
@@ -52,12 +53,7 @@ def wait_until(when: datetime) -> None:
 
 
 def at(spec: str) -> datetime:
-    now = datetime.now(KST)
-    if spec.startswith("+"):
-        return now + timedelta(seconds=int(spec[1:].rstrip("s")))
-    p = (spec.split(":") + ["0", "0"])[:3]
-    t = now.replace(hour=int(p[0]), minute=int(p[1]), second=int(p[2]), microsecond=0)
-    return t if t > now else t + timedelta(days=1)
+    return resolve_time(spec)
 
 
 # nearest_future 는 ke_setup 에 있다. 여기 복사본을 두었다가 autorun 만 옛 규칙으로
@@ -87,15 +83,8 @@ SCREEN = """() => {
 READ = """(cab) => {
   const P = window.KE_PROBE;
   if (!P || !P.keCabin) return null;
-  var lastAt = 0;
-  try {
-    var hs = P.hits(), want = String(cab).replace(/[^0-9]/g, '');
-    for (var i = hs.length - 1; i >= 0; i--) {
-      if (!/availab/i.test(hs[i].url)) continue;
-      if (hs[i].body && hs[i].body.indexOf(want) !== -1) { lastAt = hs[i].at; break; }
-    }
-  } catch (e) {}
-  return { pr: P.keCabin('프레스티지', cab), ey: P.keCabin('일반석', cab), lastAt: lastAt };
+  const pr = P.keCabin('프레스티지', cab), ey = P.keCabin('일반석', cab);
+  return {pr, ey, lastAt: pr ? pr.responseAt : (ey ? ey.responseAt : 0)};
 }"""
 
 
@@ -111,20 +100,22 @@ def main() -> int:
     ap.add_argument("--fast-gap", type=float, default=1.0)
     ap.add_argument("--fast-window", type=float, default=20.0)
     ap.add_argument("--reload-gap", type=float, default=1.5, help="D 를 기다리며 새로고침하는 간격")
-    ap.add_argument("--port", type=int, default=9223)
+    ap.add_argument("--port", type=int, default=9233)
     ap.add_argument("--setup-at", default="")
     a = ap.parse_args()
 
     tgt = nearest_future(a.date)
     stand = tgt - timedelta(days=1)
     open_at = at(a.at)
-    fire_at = open_at - timedelta(milliseconds=a.lead)
+    clock = measure_clock()
+    offset = clock["offset"]
+    fire_at = open_at - timedelta(milliseconds=a.lead) - timedelta(seconds=offset)
     end_at = open_at + timedelta(seconds=a.until)
 
     rows: list = []
-    report = {"startedAt": datetime.now(KST).isoformat(), "route": a.route,
+    report = {"runId": run_id(), "startedAt": datetime.now(KST).isoformat(), "route": a.route,
               "origin": a.origin or "SEL", "date": a.date, "target": tgt.isoformat(),
-              "openAt": open_at.isoformat(), "ok": False, "why": "시작 전"}
+              "openAt": open_at.isoformat(), "clock": clock, "ok": False, "why": "시작 전"}
 
     def save_report():
         # 예외로 죽어도 리포트는 남긴다. 안 남기면 daily 가 '어제 파일' 을 오늘로 읽는다.
@@ -134,8 +125,7 @@ def main() -> int:
             report["samples"] = len(rows)
             report["prestigeEverListed"] = ever
             OUT.mkdir(exist_ok=True)
-            (OUT / "watch_seats.json").write_text(
-                json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
+            atomic_json(OUT / "watch_seats.json", report)
             with (OUT / "seat_history.jsonl").open("a", encoding="utf-8") as f:
                 f.write(json.dumps({
                     "day": datetime.now(KST).strftime("%Y-%m-%d"),
@@ -222,11 +212,16 @@ def main() -> int:
         w = (fire_at - datetime.now(KST)).total_seconds()
         if w > 0:
             log(f"{w:.0f}초 대기 (발사 {fire_at.strftime('%H:%M:%S.%f')[:-3]})")
-            wait_until(fire_at)
+            while datetime.now(KST) < fire_at:
+                heartbeat("watch", "ready", date=a.date, fireAt=open_at.isoformat(), url=page.url)
+                time.sleep(min(3, max(0, (fire_at - datetime.now(KST)).total_seconds())))
 
         # --- 1) 발사: 매크로가 달력에서 D 를 찾아 누르고 검색까지 간다 ---
         log(f"발사 - 달력에서 {a.date} 를 찾아 조회 화면으로")
-        page.evaluate("() => window.KE_HUD.fire('watch')")
+        if (datetime.now(KST) - fire_at).total_seconds() > 1:
+            report["why"] = "발사 마감 초과"; save_report(); return 7
+        if not page.evaluate("() => window.KE_HUD.fire('watch')"):
+            report["why"] = "HUD 발사 거절"; save_report(); return 7
         reached = False
         while datetime.now(KST) < end_at and not reached:
             try:
@@ -239,7 +234,7 @@ def main() -> int:
                 time.sleep(0.2); continue
             if s["idx"] >= 2:
                 reached = True
-                secs = round((datetime.now(KST) - open_at).total_seconds(), 2)
+                secs = round((datetime.now(KST) - open_at).total_seconds() + offset, 2)
                 report["pressSinceOpen"] = secs
                 report["openReloads"] = s.get("reloads")
                 log(f"조회 화면 도달 (오픈+{secs:.2f}s, 재고침 {s.get('reloads')}회)")
@@ -284,8 +279,9 @@ def main() -> int:
                 seen_at = d["lastAt"]
                 pr, ey = d.get("pr") or {}, d.get("ey") or {}
                 now = datetime.now(KST)
-                secs = round((now - open_at).total_seconds(), 2)
+                secs = round((now - open_at).total_seconds() + offset, 2)
                 rows.append({"at": now.isoformat(), "sinceOpen": secs,
+                             "responseAt": seen_at,
                              "prSeats": pr.get("seats"), "prSoldout": pr.get("soldout"),
                              "prListed": pr.get("listed"), "eySeats": ey.get("seats"),
                              "keFlights": pr.get("keFlights")})
@@ -313,13 +309,16 @@ def main() -> int:
                     pass
             time.sleep(0.15)
 
-        report.update(ok=True, why="", maxPrestigeSeats=best,
+        report.update(ok=bool(rows), why="" if rows else "유효 표본 없음", maxPrestigeSeats=best,
+                      depletionObserved=gone_at is not None,
+                      firstSampleSinceOpen=rows[0]["sinceOpen"] if rows else None,
+                      initiallyUnavailable=bool(rows and rows[0].get("prSoldout")),
                       goneAt=gone_at.isoformat() if gone_at else None,
                       goneSinceOpen=round((gone_at - open_at).total_seconds(), 2) if gone_at else None)
         save_report()
         ever = any(r.get("prListed") for r in rows)
         note = (f"프레스티지 최대 {best}석" if best else
-                ("프레스티지 처음부터 매진(0석)" if ever else "프레스티지 정보 없음"))
+                ("첫 관측부터 예약 불가(0석); 개방/소진 시각은 미관측" if ever else "프레스티지 정보 없음"))
         log(f"기록 {len(rows)}건 / {note}"
             + (f" / 오픈+{report['goneSinceOpen']}초에 0" if gone_at else ""))
         b.close()

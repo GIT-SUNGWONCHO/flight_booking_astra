@@ -63,6 +63,7 @@
     {
       "sel": "#payment-widget > kds-sticky_1.--wds-ui.ui-sticky__host > kds-button > kds-button_1.--wds-ui.ui-button__host",
       "text": "다음",
+      "requireSelectedCabin": true,
       "tag": "kds-button_1",
       "url": "/booking/select-award-flight/departure",
       "selectorOnly": false

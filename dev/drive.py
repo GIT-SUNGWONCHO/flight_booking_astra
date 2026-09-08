@@ -20,7 +20,7 @@ SHOTS = ROOT / "dev-shots"
 
 
 def get_page(pw):
-    browser = pw.chromium.connect_over_cdp("http://localhost:9222")
+    browser = pw.chromium.connect_over_cdp("http://localhost:9232")
     ctx = browser.contexts[0]
     # koreanair 탭을 우선 고른다
     for p in ctx.pages:

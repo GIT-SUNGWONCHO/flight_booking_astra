@@ -13,10 +13,10 @@
 
 안전
   결제는 누르지 않는다(allowPay=false). 일반석으로 돌리면 좌석이 넉넉해 경쟁이 없고,
-  7단계에서 생기는 hold 는 결제를 안 하면 자동 해제된다. 계측용 계정(9223)에서 돈다.
+  7단계에서 생기는 hold 는 결제를 안 하면 자동 해제된다. 계측용 계정(9233)에서 돈다.
 
 사용:
-  .venv/Scripts/python.exe dev/observe.py --route CDG --date 08-11 --port 9223
+  .venv/Scripts/python.exe dev/observe.py --route CDG --date 08-11 --port 9233
 """
 from __future__ import annotations
 import argparse, json, subprocess, sys, time
@@ -44,7 +44,7 @@ def main() -> int:
     ap.add_argument("--from", dest="origin", default="")
     ap.add_argument("--date", default="", help="목표 날짜 MM-DD (비우면 최신 오픈일)")
     ap.add_argument("--cabin", default="일반석", help="경쟁 없는 등급으로 관찰하는 게 안전하다")
-    ap.add_argument("--port", type=int, default=9223)
+    ap.add_argument("--port", type=int, default=9233)
     ap.add_argument("--no-setup", action="store_true")
     ap.add_argument("--secs", type=int, default=90)
     a = ap.parse_args()
@@ -111,7 +111,8 @@ def main() -> int:
           R.loadBaked();
           R.state.cabin = cabin;
           R.state.expectDate = date;
-          R.state.allowPay = false;      // 결제하기는 절대 안 누른다
+          R.state.steps = R.state.steps.slice(0, 6); // 관찰도 주문 전 정지
+          R.state.allowPay = false;
           R.state.byCause = {}; R.state.problem = false; R.state.openReloads = 0;
           R.reset(); R.save();
           H.state.startAt = 'calendar'; H.state.armed = false; H.save();
@@ -144,7 +145,7 @@ def main() -> int:
         rows = []
         for i, st in enumerate(steps):
             end = steps[i + 1]["at"] if i + 1 < len(steps) else time.time()
-            inside = [n for n in net if st["at"] <= n["at"] < end]
+            inside = [n for n in net if n["at"] < end and n.get("end", n["at"]) > st["at"]]
             # 요청은 병렬로 나간다. 단순 합산하면 벽시계를 넘어(실측 463%) 의미가 없다.
             # '요청이 하나라도 떠 있던 시간' = 구간들의 합집합을 서버 시간으로 본다.
             iv = sorted(((max(n["at"], st["at"]), min(n.get("end", n["at"]), end))
@@ -166,7 +167,7 @@ def main() -> int:
             rows.append({
                 "step": st["idx"], "sinceFire": round(st["at"] - t0, 2),
                 "stepMs": round((end - st["at"]) * 1000),
-                "serverMs": server, "requests": len(inside),
+                "networkOccupiedMs": server, "requests": len(inside),
                 "slowest": sorted(inside, key=lambda x: -x["ms"])[:3],
             })
 
@@ -176,13 +177,13 @@ def main() -> int:
                         "cabin": a.cabin, "rows": rows, "net": net[-80:]},
                        ensure_ascii=False, indent=1), encoding="utf-8")
 
-        print("\n=== 단계별: 총 시간 vs 그중 서버 시간 ===")
+        print("\n=== 단계별: 총 시간 vs 네트워크 관측 구간 합집합 (서버 처리 시간이 아님) ===")
         print(f"{'단계':>4} {'발사후':>7} {'총ms':>7} {'서버ms':>7} {'서버%':>6}  느린 요청")
         for r in rows:
-            pct = round(r["serverMs"] / r["stepMs"] * 100) if r["stepMs"] else 0
+            pct = round(r["networkOccupiedMs"] / r["stepMs"] * 100) if r["stepMs"] else 0
             slow = ", ".join(f"{x['url'][-34:]} {x['ms']}ms" for x in r["slowest"][:2])
             print(f"{r['step']:>4} {r['sinceFire']:>7.2f} {r['stepMs']:>7} "
-                  f"{r['serverMs']:>7} {pct:>5}%  {slow}")
+                  f"{r['networkOccupiedMs']:>7} {pct:>5}%  {slow}")
         log("리포트 -> dev-shots/observe_report.json")
         b.close()
     return 0

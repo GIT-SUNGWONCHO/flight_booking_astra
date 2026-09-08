@@ -9,7 +9,7 @@
 #       최신 Chrome 은 기본 프로필에 원격 디버깅을 허용하지 않기 때문.
 cd "$(dirname "$0")"
 exec "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
-  --remote-debugging-port=9222 \
+  --remote-debugging-port=9232 \
   --user-data-dir="$PWD/.debug-profile" \
   --no-first-run \
   --no-default-browser-check \

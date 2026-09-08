@@ -499,6 +499,19 @@
     return !findCabin(cabin) && !!findCabin(cabin, { anyCarrier: true });
   }
 
+  // A click can be lost during the currency redraw. Confirm both the actual
+  // radio and the application's nonzero mileage total before submitting Next.
+  function cabinSelection(cabin) {
+    var el = findCabin(cabin);
+    var id = el && el.getAttribute('for');
+    var input = id ? document.getElementById(id) : null;
+    var checked = !!(input && input.type === 'radio' && input.checked);
+    var widget = document.querySelector('#payment-widget');
+    var match = label(widget).match(/([0-9][0-9,]*)\s*마일/);
+    var priced = !!(match && Number(match[1].replace(/,/g, '')) > 0);
+    return {el: el, checked: checked, priced: priced, ready: checked && priced};
+  }
+
   /** 조회 결과(운임 카드)가 화면에 그려졌는가.
    *
    * "고른 등급이 없다" 와 "페이지가 아직 안 떴다" 는 전혀 다른 상황인데, findCabin 은
@@ -740,6 +753,7 @@
     findLatestOpenDate: findLatestOpenDate, findOpenDate: findOpenDate,
     openDateCells: openDateCells, inChrome: inChrome, realTarget: realTarget,
     findCabin: findCabin, cabinListReady: cabinListReady, tabKey: tabKey,
+    cabinSelection: cabinSelection,
     operatedByKE: operatedByKE, cabinOnlyCodeshare: cabinOnlyCodeshare,
     scrollToBottom: scrollToBottom, hittable: hittable,
     monthDay: monthDay, sameDate: sameDate, findContaining: findContaining,
