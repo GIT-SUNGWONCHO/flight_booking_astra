@@ -95,16 +95,31 @@ def main() -> int:
     ap.add_argument("--hold", action="store_true", help="명시적으로 주문 생성까지 진행, 결제는 수동")
     ap.add_argument("--payment-window", action="store_true", help="실제 결제창을 열고 멈춤. 최종 결제 승인 금지")
     ap.add_argument("--max-late", type=float, default=1.0)
-    ap.add_argument("--mode", choices=["ui", "hybrid-calendar"], default="ui")
+    ap.add_argument("--mode", choices=["ui", "hybrid-calendar", "hybrid-award"], default="ui")
     # 시작 화면. calendar = 달력에서 새로고침(검증됨), departure = 조회 화면에서 시작
     # (달력 한 장을 건너뛰어 앞단이 빨라질 수 있다는 가설. 실효를 재려고 넣었다).
     ap.add_argument("--start", default="calendar", choices=["calendar", "departure"])
+    ap.add_argument("--prepare-krw", action="store_true", help="조회 화면에서 KRW 변경을 발사 전에 완료 (실험)")
+    ap.add_argument("--use-prepared", action="store_true", help="이미 준비된 화면 재사용: dry 속도 비교 전용, 리허설 아님")
+    ap.add_argument("--no-reload", action="store_true", help="다른 날짜의 조회 화면에서 날짜 띠만 변경: 명시적 실험 옵션")
+    ap.add_argument("--prepare-date", default="", help="미리 서 있을 날짜 MM-DD (실제 목표와 별도)")
+    ap.add_argument('--refresh-date', default='', help='발사 후 먼저 조회할 열린 날짜: 신규 목표의 날짜 띠를 갱신')
     ap.add_argument("--lead", type=int, default=2500,
                     help="선발사(ms). 오픈시각보다 이만큼 일찍 새로고침해 조회가 09:00 직후 도착하게 한다")
     a = ap.parse_args()
+    if a.prepare_krw and (a.start != 'departure' or not a.date):
+        ap.error('--prepare-krw requires --start departure and --date')
     if sum([a.dry, a.hold, a.payment_window]) > 1:
         ap.error("--dry, --hold, --payment-window are mutually exclusive")
     a.dry = not (a.hold or a.payment_window)
+    if a.use_prepared and not a.dry:
+        ap.error('--use-prepared is dry-only; full rehearsals must run setup')
+    if (a.no_reload or a.prepare_date) and a.start != 'departure':
+        ap.error('--no-reload / --prepare-date require departure mode')
+    if a.no_reload and a.lead != 0:
+        ap.error('--no-reload requires --lead 0; do not query the target before opening')
+    if a.refresh_date and (not a.no_reload or a.refresh_date == a.date):
+        ap.error('--refresh-date requires --no-reload and must differ from target')
     if not a.dry and a.mode != "ui":
         ap.error("혼합 모드는 실사이트 비교 검증 전까지 dry 전용입니다")
 
@@ -136,11 +151,13 @@ def main() -> int:
     if a.date:
         # 연도 계산은 ke_setup.nearest_future 한 곳에만 둔다.
         # 여기서 따로 계산하다가 09-07 에 2026년 달력을 잡아 세 번 연속 죽었다.
-        setup_cmd += ["--date", nearest_future(a.date).isoformat()]
+        setup_cmd += ["--date", nearest_future(a.prepare_date or a.date).isoformat()]
     # 한 번 실패했다고 하루를 버리지 않는다. 발사 90초 전까지 다시 해본다.
     # (09-04: 새 크롬에서 1차 실패하고 그대로 죽어 09:00 을 통째로 놓쳤다.
     #  이 사실은 FACTS 에 있었는데 재시도를 preflight 에만 넣어 두었다.)
-    st = run_setup(setup_cmd, fire_at - timedelta(seconds=90), log)
+    st = ({'ok': True} if a.use_prepared else
+          run_setup(setup_cmd, fire_at - timedelta(seconds=90), log))
+    report['preparedScreenReused'] = a.use_prepared
     if not st.get("ok"):
         return finish(False, f"달력 준비 실패: {st.get('why')}", 2)
     log("달력 준비됨")
@@ -158,9 +175,26 @@ def main() -> int:
         original_pages = set(ctx.pages)
         from network_trace import NetworkTrace
         trace = NetworkTrace(page, OUT, a.date)
+        if a.use_prepared:
+            # Install this build before a warm-screen benchmark. Existing module
+            # guards would otherwise retain an older injected util/probe version.
+            page.reload(wait_until='domcontentloaded', timeout=30000)
+            page.wait_for_function('window.KE_HUD && window.KE_REC', timeout=15000)
         try: page.bring_to_front()      # 뒤에 있으면 브라우저가 타이머를 늦춘다
         except Exception: pass
         page.evaluate(js)
+
+        if a.prepare_krw:
+            from prepare_currency import prepare_krw
+            reserve = 0 if a.use_prepared else 90  # dry bench only; live deadline unchanged
+            remaining = int((fire_at.timestamp() - offset - time.time() - reserve) * 1000)
+            if remaining <= 0:
+                return finish(False, '통화 사전 준비 마감 초과', 2)
+            try:
+                report['currencyPreparation'] = prepare_krw(page, a.date, min(60000, remaining))
+                log('통화 KRW 사전 준비 완료')
+            except Exception as e:
+                return finish(False, '통화 사전 준비 실패: ' + type(e).__name__, 2)
 
         page.evaluate("""({cabin, date, dry, hold, paymentWindow, start}) => {
           const R = window.KE_REC, H = window.KE_HUD;
@@ -179,9 +213,11 @@ def main() -> int:
         }""", {"cabin": a.cabin, "date": a.date, "dry": a.dry, "hold": a.hold,
                  "paymentWindow": a.payment_window, "start": a.start})
         hybrid = None
-        if a.mode == "hybrid-calendar":
-            from hybrid import CalendarPrefetch
-            hybrid = CalendarPrefetch(page, (fire_at.timestamp() - offset) * 1000)
+        if a.mode.startswith('hybrid-'):
+            from hybrid import CalendarPrefetch, CALENDAR_PATH, AWARD_PATH
+            hybrid = CalendarPrefetch(page, (fire_at.timestamp() - offset) * 1000,
+                                      endpoint=AWARD_PATH if a.mode == 'hybrid-award' else CALENDAR_PATH,
+                                      refresh_timestamp=True)
             hybrid.prepare()
             report["hybrid"] = hybrid.report
 
@@ -217,10 +253,21 @@ def main() -> int:
         heartbeat("macro", "firing", fireAt=fire_at.isoformat())
         log("발사")
         t0 = time.time()
+        report['actualFiredAt'] = datetime.fromtimestamp(t0 + offset, KST).isoformat()
         try: page.bring_to_front()      # 발사 순간에도 한 번 더 (그새 뒤로 갔을 수 있다)
         except Exception: pass
-        if not page.evaluate("() => window.KE_HUD.fire('autorun')"):
-            return finish(False, "HUD가 발사를 거절했습니다", 6)
+        if a.no_reload:
+            from departure_live import fire_departure_live, refresh_departure
+            if a.refresh_date:
+                report['departureRefresh'] = refresh_departure(page, a.refresh_date)
+                if not report['departureRefresh']['ok']:
+                    return finish(False, '날짜 띠 갱신 실패: '+report['departureRefresh']['why'], 6)
+            report['departureLive'] = fire_departure_live(page, a.date)
+            fired = report['departureLive']['ok']
+        else:
+            fired = page.evaluate("() => window.KE_HUD.fire('autorun')")
+        if not fired:
+            return finish(False, '발사 거절: ' + str(report.get('departureLive', {}).get('why', 'HUD')), 6)
 
         last, popup = -1, False
         ctx.on("page", lambda p: None)

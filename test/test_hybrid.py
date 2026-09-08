@@ -7,7 +7,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dev"))
-from hybrid import CalendarPrefetch, CALENDAR_PATH
+from hybrid import CalendarPrefetch, CALENDAR_PATH, request_matches, AWARD_PATH
 from playwright.sync_api import sync_playwright
 
 
@@ -26,10 +26,23 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
-        self.wfile.write(json.dumps({"seats":1 if time.time() >= self.opened else 0}).encode())
+        payload={"seats":1 if time.time() >= self.opened else 0}
+        if self.path == AWARD_PATH:
+            payload['upsellBoundAvailList']=[]
+        self.wfile.write(json.dumps(payload).encode())
 
 
 class HybridTests(unittest.TestCase):
+    def test_timestamp_does_not_relax_session_or_body(self):
+        now=1788800000000
+        source={'url':'https://ke.test'+AWARD_PATH,'req':{'method':'POST','body':'{"date":"20270904"}',
+                'headers':{'timestamp':str(now-60000),'ksessionId':'session-a'}}}
+        headers={'timestamp':str(now),'ksessionid':'session-a'}
+        self.assertTrue(request_matches(source,source['url'],'POST',source['req']['body'],headers,now))
+        for patch in ({'ksessionid':'session-b'},{'timestamp':str(now-6000)},{'timestamp':'invalid'}):
+            self.assertFalse(request_matches(source,source['url'],'POST',source['req']['body'],headers|patch,now))
+        self.assertFalse(request_matches(source,source['url'],'POST','{"date":"20270905"}',headers,now))
+        self.assertFalse(request_matches(source,source['url'],'POST',source['req']['body'],headers))
     @classmethod
     def setUpClass(cls):
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -74,6 +87,21 @@ class HybridTests(unittest.TestCase):
         self.ui_fetch('{"date":"20270905"}')
         self.assertFalse(bridge.report["used"])
         self.assertEqual(len(Handler.calls), 2)
+        bridge.close()
+    def test_award_bridge_refreshes_clock_but_keeps_session(self):
+        self.page.evaluate("""url => {window.KE_PROBE={hits:()=>[{url,
+          req:{method:'POST',body:'{"date":"20270904"}',headers:{
+          'content-type':'application/json',timestamp:String(Date.now()-60000),ksessionId:'session-a'}}}]};}""", self.origin+AWARD_PATH)
+        Handler.opened=time.time()+0.3
+        bridge=CalendarPrefetch(self.page,Handler.opened*1000,endpoint=AWARD_PATH,refresh_timestamp=True)
+        self.assertTrue(bridge.prepare())
+        bridge.helper.wait_for_function('window.__astraResult !== null')
+        value=self.page.evaluate("""async path => (await fetch(path,{method:'POST',
+          headers:{'content-type':'application/json',timestamp:String(Date.now()),ksessionId:'session-a'},
+          body:'{"date":"20270904"}'})).json()""",AWARD_PATH)
+        self.assertEqual(value['seats'],1)
+        self.assertTrue(bridge.report['used'])
+        self.assertEqual(len(Handler.calls),1)
         bridge.close()
     def test_stale_prefetch_is_not_used(self):
         Handler.opened=time.time()-1

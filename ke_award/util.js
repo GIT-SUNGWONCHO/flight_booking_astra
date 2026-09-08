@@ -622,7 +622,7 @@
    *
    * 라벨에 월이 없다("21 (토)"). 목표 날짜의 일자만 맞춰 보고, 진짜 그 날짜로
    * 조회됐는지는 서버 응답으로 확인한다. */
-  var STRIP_SEL = '#flexible-date li, [class*="flexible-date__item"]';
+  var STRIP_SEL = '#flexible-date li, .flexible-date__item';
 
   function findStripDate(mmdd) {
     var md = monthDay(mmdd);
@@ -631,14 +631,21 @@
      * 일자를 집는다 - 12-25 를 찾다가 8월 25일을 누르는 식이다. 지금 화면이 몇 월을
      * 보고 있는지는 검색 위젯의 날짜칸이 알려주므로, 달이 다르면 아예 없다고 한다. */
     var nowMd = searchedDate();
-    if (nowMd && nowMd.slice(0, 2) !== md.slice(0, 2)) {
+    var crossMonth = nowMd && nowMd.slice(0, 2) !== md.slice(0, 2);
+    var Pstrip = W.KE_PROBE || window.KE_PROBE;
+    var dates = crossMonth && Pstrip && Pstrip.latestStripDates ? Pstrip.latestStripDates() : [];
+    if (crossMonth && (dates.indexOf(md) < 0 || dates.indexOf(nowMd) < 0)) {
       return { el: null, selectable: false,
                why: md + ' 은(는) 이 화면(' + nowMd + ')의 날짜 띠에 없습니다 (다른 달)' };
     }
     var want = +md.slice(3), items;
     try { items = document.querySelectorAll(STRIP_SEL); } catch (e) { return null; }
     if (!items.length) return { el: null, selectable: false, why: '날짜 띠가 화면에 없습니다' };
+    if (crossMonth && (dates.length !== items.length || dates.filter(function(d){return d===md;}).length !== 1)) {
+      return {el:null,selectable:false,why:'날짜 띠와 최신 서버 날짜의 대응이 불명확합니다'};
+    }
     for (var i = 0; i < items.length; i++) {
+      if (crossMonth && dates[i] !== md) continue;
       var it = items[i];
       if (!visible(it)) continue;
       var t = label(it);

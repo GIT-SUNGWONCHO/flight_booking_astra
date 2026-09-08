@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -588,14 +589,18 @@ def main() -> int:
                     seen = page.evaluate(MONTHS)
                     if head in seen:
                         break
-                    if not page.evaluate("""() => {
+                    first_month = re.search(r'(\d{4})년\s*(\d+)월', seen[0]) if seen else None
+                    if not first_month:
+                        break
+                    before = (int(y), int(mo)) < (int(first_month[1]), int(first_month[2]))
+                    if not page.evaluate("""direction => {
                       const U = window.KE_UTIL;
                       const n = U.candidates(document).find(e => U.visible(e)
                         && /ui-datepicker__calendar-button/.test((e.className||'').toString())
-                        && /-next/.test((e.className||'').toString()));
-                      if (!n) return false;
+                        && (e.className||'').toString().includes(direction));
+                      if (!n || n.disabled) return false;
                       U.fireClick(n); return true;
-                    }"""):
+                    }""", '-prev' if before else '-next'):
                         break
                     moved += 1
                     page.wait_for_timeout(320)

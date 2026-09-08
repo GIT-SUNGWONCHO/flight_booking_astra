@@ -179,6 +179,23 @@
   }
 
   /** 이 화면의 날짜 띠에 있는 날들. ["08-16", ...] - 목표 날짜가 여기 있어야 고를 수 있다. */
+  function latestStripDates() {
+    for (var i=hits.length-1;i>=0;i--) {
+      if (hits[i].status !== 200 || !/awardAvailability/.test(hits[i].url)) continue;
+      try {
+        var data=JSON.parse(hits[i].body), dates=[];
+        ((data && data.upsellBoundAvailList)||[]).forEach(function(b) {
+          (b.upsellCalendarFareList||[]).forEach(function(c) {
+            var d=String(c.date||'');
+            if (/^\d{8}$/.test(d)) dates.push(d.slice(4,6)+'-'+d.slice(6,8));
+          });
+        });
+        return dates;
+      } catch(e) { return []; }
+    }
+    return [];
+  }
+
   function stripDates() {
     var out = [];
     hits.forEach(function (h) {
@@ -365,7 +382,7 @@
     summary: summary,
     seatTimeline: seatTimeline,
     storeHints: storeHints,
-    shownDate: shownDate, stripDates: stripDates,
+    shownDate: shownDate, stripDates: stripDates, latestStripDates: latestStripDates,
     payTypes: payTypes,
     dump: function () {
       /* 원본 JSON 은 길어서 사람이 읽기 어렵다. 알고 싶은 것(등급별 좌석 수가

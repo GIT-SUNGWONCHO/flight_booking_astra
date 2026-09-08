@@ -172,6 +172,13 @@ served.set(LOGIN, JSON.stringify({ token: 'SECRET-DO-NOT-KEEP', name: 'CHO' }));
         '날짜 없는 항목의 내용은 내보내지 않는다 (키 이름과 길이만)');
   check(P.dump().includes('== 조회 조건이 어디 있나'), '내보내기에 그 결과가 들어간다');
 
+  const stripUrl='/api/ap/booking/avail/awardAvailability';
+  served.set(stripUrl,JSON.stringify({upsellBoundAvailList:[{upsellCalendarFareList:[{date:'20270831'},{date:'20270901'}]}]}));
+  await global.fetch(stripUrl); await new Promise(r=>setTimeout(r,30));
+  check(JSON.stringify(P.latestStripDates())==='["08-31","09-01"]','최신 응답으로 월 경계 날짜 순서를 읽는다');
+  served.set(stripUrl,JSON.stringify({upsellBoundAvailList:[]}));
+  await global.fetch(stripUrl); await new Promise(r=>setTimeout(r,30));
+  check(P.latestStripDates().length===0,'최신 날짜 목록이 비면 옛 목록으로 추측하지 않는다');
   console.log();
   console.log(fails.length ? 'FAILED: ' + fails.join(', ') : '조회 응답 계측 테스트 통과');
   process.exit(fails.length ? 1 : 0);

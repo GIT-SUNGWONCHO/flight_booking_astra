@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         대한항공 마일리지 예매 보조 (KE Award Macro)
 // @namespace    local.ke.award
-// @version      1.79.0-dirty
+// @version      1.80.0-dirty
 // @description  예매 단계 녹화/재생 + 오픈시각 정시 발사 + 안내사항 모달 즉시 통과
 // @author       local
 // @match        *://*.koreanair.com/*
@@ -640,7 +640,7 @@ try {
    *
    * 라벨에 월이 없다("21 (토)"). 목표 날짜의 일자만 맞춰 보고, 진짜 그 날짜로
    * 조회됐는지는 서버 응답으로 확인한다. */
-  var STRIP_SEL = '#flexible-date li, [class*="flexible-date__item"]';
+  var STRIP_SEL = '#flexible-date li, .flexible-date__item';
 
   function findStripDate(mmdd) {
     var md = monthDay(mmdd);
@@ -649,14 +649,21 @@ try {
      * 일자를 집는다 - 12-25 를 찾다가 8월 25일을 누르는 식이다. 지금 화면이 몇 월을
      * 보고 있는지는 검색 위젯의 날짜칸이 알려주므로, 달이 다르면 아예 없다고 한다. */
     var nowMd = searchedDate();
-    if (nowMd && nowMd.slice(0, 2) !== md.slice(0, 2)) {
+    var crossMonth = nowMd && nowMd.slice(0, 2) !== md.slice(0, 2);
+    var Pstrip = W.KE_PROBE || window.KE_PROBE;
+    var dates = crossMonth && Pstrip && Pstrip.latestStripDates ? Pstrip.latestStripDates() : [];
+    if (crossMonth && (dates.indexOf(md) < 0 || dates.indexOf(nowMd) < 0)) {
       return { el: null, selectable: false,
                why: md + ' 은(는) 이 화면(' + nowMd + ')의 날짜 띠에 없습니다 (다른 달)' };
     }
     var want = +md.slice(3), items;
     try { items = document.querySelectorAll(STRIP_SEL); } catch (e) { return null; }
     if (!items.length) return { el: null, selectable: false, why: '날짜 띠가 화면에 없습니다' };
+    if (crossMonth && (dates.length !== items.length || dates.filter(function(d){return d===md;}).length !== 1)) {
+      return {el:null,selectable:false,why:'날짜 띠와 최신 서버 날짜의 대응이 불명확합니다'};
+    }
     for (var i = 0; i < items.length; i++) {
+      if (crossMonth && dates[i] !== md) continue;
       var it = items[i];
       if (!visible(it)) continue;
       var t = label(it);
@@ -796,7 +803,7 @@ try {
 (function () {
   var W = window;
   try { if (typeof unsafeWindow !== 'undefined' && unsafeWindow) W = unsafeWindow; } catch (e) {}
-  var B = { version: '1.79.0-dirty', hash: 'debee2a-dirty' };
+  var B = { version: '1.80.0-dirty', hash: '305d571-dirty' };
   try { W.KE_BUILD = B; } catch (e) {}
   if (W !== window) { try { window.KE_BUILD = B; } catch (e) {} }
 })();
@@ -988,6 +995,23 @@ try {
   }
 
   /** 이 화면의 날짜 띠에 있는 날들. ["08-16", ...] - 목표 날짜가 여기 있어야 고를 수 있다. */
+  function latestStripDates() {
+    for (var i=hits.length-1;i>=0;i--) {
+      if (hits[i].status !== 200 || !/awardAvailability/.test(hits[i].url)) continue;
+      try {
+        var data=JSON.parse(hits[i].body), dates=[];
+        ((data && data.upsellBoundAvailList)||[]).forEach(function(b) {
+          (b.upsellCalendarFareList||[]).forEach(function(c) {
+            var d=String(c.date||'');
+            if (/^\d{8}$/.test(d)) dates.push(d.slice(4,6)+'-'+d.slice(6,8));
+          });
+        });
+        return dates;
+      } catch(e) { return []; }
+    }
+    return [];
+  }
+
   function stripDates() {
     var out = [];
     hits.forEach(function (h) {
@@ -1174,7 +1198,7 @@ try {
     summary: summary,
     seatTimeline: seatTimeline,
     storeHints: storeHints,
-    shownDate: shownDate, stripDates: stripDates,
+    shownDate: shownDate, stripDates: stripDates, latestStripDates: latestStripDates,
     payTypes: payTypes,
     dump: function () {
       /* 원본 JSON 은 길어서 사람이 읽기 어렵다. 알고 싶은 것(등급별 좌석 수가

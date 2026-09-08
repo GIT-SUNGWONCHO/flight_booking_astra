@@ -51,3 +51,9 @@ no identifier; this must not be relabeled as a verified seat hold.
 The failed original report remains unchanged. Supplementary live verification
 is in payment_window_verified.json in the same run folder. Configuration changes
 made before fire are recorded in configuration-amendment.json.
+
+## Subsequent speed work
+
+See [speed experiments](astra-speed-2026-09-08.md) for the later full automatic
+payment-window pass, the failed hybrid comparison, and the next-day candidate.
+The earlier failure reports and timing bases above are preserved.

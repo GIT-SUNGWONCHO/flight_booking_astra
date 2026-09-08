@@ -42,6 +42,10 @@ def main():
     ap.add_argument("--date", default="")
     ap.add_argument("--cabin", default="프레스티지")
     ap.add_argument("--start", default="calendar", choices=["calendar", "departure"])
+    ap.add_argument('--prepare-krw', action='store_true')
+    ap.add_argument('--no-reload', action='store_true')
+    ap.add_argument('--prepare-date', default='')
+    ap.add_argument('--refresh-date', default='')
     ap.add_argument("--mode", default="dry", choices=["dry", "payment-window"])
     ap.add_argument("--ready-by", default="")
     ap.add_argument("--no-watch", action="store_true")
@@ -50,6 +54,8 @@ def main():
     a = ap.parse_args()
     if a.no_watch and a.no_macro:
         ap.error("실행할 worker가 없습니다")
+    if (a.no_reload or a.prepare_krw or a.prepare_date) and a.start != 'departure':
+        ap.error('Fast preparation options require --start departure')
     if "KE_RUN_ID" not in os.environ:
         new_run()
     identity, folder = run_id(), output_dir()
@@ -61,7 +67,9 @@ def main():
     manifest = {"runId": identity, "fireAt": fire.isoformat(), "date": target,
                 "route": a.route, "origin": a.origin, "cabin": a.cabin,
                 "dry": a.mode == "dry", "mode": a.mode, "python": sys.version, "buildHash": build_hash(), "clock": clock,
-                "runtimeHash": runtime_hash(), "start": a.start}
+                "runtimeHash": runtime_hash(), "start": a.start,
+                'prepareKrw': a.prepare_krw, 'noReload': a.no_reload, 'prepareDate': a.prepare_date,
+                'refreshDate': a.refresh_date}
     atomic_json(folder / "manifest.json", manifest)
     print(f"run={identity}; 목표 {a.origin}->{a.route} {target}; {a.mode}; 발사 {fire.isoformat()}", flush=True)
     processes, files = {}, {}
@@ -80,6 +88,10 @@ def main():
                     cmd += ["--setup-at", resolve_time(a.setup_at).isoformat()]
             else:
                 cmd += ["--dry" if a.mode == "dry" else "--payment-window", "--cabin", a.cabin, "--start", a.start]
+                if a.prepare_krw: cmd += ['--prepare-krw']
+                if a.no_reload: cmd += ['--no-reload', '--lead', '0']
+                if a.prepare_date: cmd += ['--prepare-date', a.prepare_date]
+                if a.refresh_date: cmd += ['--refresh-date', a.refresh_date]
             files[name] = (folder / (name + ".log")).open("w", encoding="utf-8")
             token = uuid.uuid4().hex
             processes[name] = subprocess.Popen(cmd, stdout=files[name], stderr=subprocess.STDOUT,

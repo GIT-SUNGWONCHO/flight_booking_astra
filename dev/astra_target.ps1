@@ -1,6 +1,6 @@
 # Explicit single-date release candidate. No scheduler is installed by this file.
 # Opens the payment window; never approves payment inside it.
-param([switch]$PartialDry)
+param([switch]$PartialDry, [switch]$CalendarFallback)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $fire = [DateTimeOffset]::Parse('2026-09-09T09:00:00+09:00')
@@ -14,7 +14,14 @@ $python = Join-Path $root '.venv/Scripts/python.exe'
 $env:PYTHONIOENCODING = 'utf-8'
 $env:PYTHONUNBUFFERED = '1'
 $mode = if ($PartialDry) { 'dry' } else { 'payment-window' }
+$speedArgs = @()
+if (-not $CalendarFallback) {
+  # 08-30 -> 09-01 refreshes the strip containing the newly opening 09-04.
+  # Tested through payment-window on already-open economy dates, not 09:00 Prestige.
+  $speedArgs = @('--start', 'departure', '--prepare-krw', '--no-reload',
+                 '--prepare-date', '08-30', '--refresh-date', '09-01')
+}
 & $python (Join-Path $PSScriptRoot 'daily.py') --at $fire.ToString('o') `
   --from FCO --route ICN --date 09-04 --cabin '프레스티지' --no-watch `
-  --ready-by 08:50 --mode $mode
+  --ready-by 08:50 --mode $mode @speedArgs
 exit $LASTEXITCODE

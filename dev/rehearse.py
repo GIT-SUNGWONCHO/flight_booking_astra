@@ -108,12 +108,19 @@ def main() -> int:
     ap.add_argument("--from", dest="origin", default="")
     ap.add_argument("--cabin", default="일반석")
     ap.add_argument("--start", default="calendar", choices=["calendar", "departure"])
+    ap.add_argument('--date', default='', help='리허설 목표 MM-DD, 생략하면 열린 날짜 자동 선택')
+    ap.add_argument('--prepare-krw', action='store_true')
+    ap.add_argument('--no-reload', action='store_true')
+    ap.add_argument('--prepare-date', default='')
+    ap.add_argument('--refresh-date', default='')
     ap.add_argument("--max-seconds", type=float, default=90)
     ap.add_argument("--partial-dry", action="store_true", help="주문 직전까지만 부분 점검; 전체 리허설 통과로 간주하지 않음")
     ap.add_argument("--no-watch", action="store_true", help="계측용 계정 없이 매크로 dry와 수동 네트워크 기록만 시험")
     ap.add_argument("--keep-browsers", action="store_true",
                     help="크롬을 죽이지 않는다. 차가운 상태가 아니게 되므로 권하지 않는다")
     a = ap.parse_args()
+    if (a.prepare_krw or a.no_reload or a.prepare_date or a.refresh_date) and a.start != 'departure':
+        ap.error('Fast rehearsal options require --start departure')
     mode = 'dry' if a.partial_dry else 'payment-window'
 
     args = ["--route", a.route] + (["--from", a.origin] if a.origin else []) \
@@ -144,7 +151,8 @@ def main() -> int:
     identity = new_run()
     folder = output_dir()
 
-    tgt = open_target(args)
+    from ke_setup import nearest_future
+    tgt = nearest_future(a.date) if a.date else open_target(args)
     fire = datetime.now(KST) + timedelta(minutes=a.minutes)
     log(f"발사 예정 {fire.strftime('%H:%M:%S')} (지금+{a.minutes}분) / 출발일 {tgt} / {mode}")
     cmd = [sys.executable, str(ROOT / "dev" / "daily.py")] + args + \
@@ -152,6 +160,10 @@ def main() -> int:
            "--date", tgt.strftime("%m-%d"), "--cabin", a.cabin, "--start", a.start, "--mode", mode]
     if a.no_watch:
         cmd.append("--no-watch")
+    if a.prepare_krw: cmd.append('--prepare-krw')
+    if a.no_reload: cmd.append('--no-reload')
+    if a.prepare_date: cmd += ['--prepare-date', a.prepare_date]
+    if a.refresh_date: cmd += ['--refresh-date', a.refresh_date]
     r = subprocess.run(cmd, capture_output=True, text=True,
                        timeout=(a.minutes + 8) * 60)
     print(r.stdout[-3000:])
