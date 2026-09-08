@@ -1,59 +1,60 @@
-# Astra validation record — 2026-09-08
+# Astra 검증 기록 — 2026-09-08
 
-Acceptance was changed by the user: a rehearsal must display the actual payment
-window. Order creation before it is permitted; final payment approval is not.
-Earlier dry passes only prove partial execution.
+사용자가 정한 리허설 합격 기준은 **실제 결제창 표시**다.
+그 전에 필요한 주문 생성은 허용되며, 결제창 안의 최종 결제 승인은 수행하지 않는다.
+이전에 통과한 주문 전 시험은 부분 실행만 입증한다.
 
-## Evidence retained under ignored dev-shots/runs
+## 실행별 보관 기록
 
-| Run | Mode | Result |
-|---|---|---|
-| 20260908-095009-1662caa0 | UI dry | 6/6, contact ready, 26.17 s; partial |
-| 20260908-095551-8c76de7c | Hybrid calendar dry | bridge prepared but not used; request mismatch; contact readiness failed |
-| 20260908-100402-b2f1c2a8 | Restarted Chrome, UI dry | partial pass, 26.09 s |
-| 20260908-101831-07e91c9c | Payment-window | readiness false negative; no fire; Windows venv launcher PID differed from worker PID |
-| 20260908-102554-12717b43 | Payment-window | stopped at 5/17; fare selection had cleared, total was zero; no order request |
-| 20260908-103834-7bd39c1f | Payment-window | 17/17; Hyundai Card window appeared; original detector rejected the issuer entry page; corrected detector verified the still-open real window |
-| 20260908-105334-fcaf19ca | Hybrid calendar dry | 6/6, 24.55 s partial; bridge unused; identical URL/body, differing timestamp header |
+기록은 Git에서 제외된 `dev-shots/runs/` 아래에 실행 ID별로 보관한다.
 
-The PID check now uses a unique inherited worker token plus liveness, timestamp,
-run ID and target. A regression covers distinct launcher/worker PIDs and rejects
-a heartbeat from another worker.
+| 실행 ID | 방식 | 결과 |
+| --- | --- | --- |
+| 20260908-095009-1662caa0 | 화면 조작, 주문 전 시험 | 6/6 완료, 연락처 화면 준비, 26.17초. 부분 점검 |
+| 20260908-095551-8c76de7c | 달력 API 혼합, 주문 전 시험 | 응답 연결 준비는 됐으나 요청 불일치로 재사용하지 못함. 연락처 화면 준비 조건 실패 |
+| 20260908-100402-b2f1c2a8 | Chrome 재시작, 화면 조작, 주문 전 시험 | 부분 점검 통과, 26.09초 |
+| 20260908-101831-07e91c9c | 결제창까지 진행 | 준비 상태를 잘못 실패로 판정해 발사하지 않음. Windows 가상환경 실행기 PID와 실제 작업자 PID가 달랐음 |
+| 20260908-102554-12717b43 | 결제창까지 진행 | 5/17에서 중단. 운임 선택이 해제되고 총액이 0이었음. 주문 요청 없음 |
+| 20260908-103834-7bd39c1f | 결제창까지 진행 | 17/17 완료, 현대카드 창 표시. 기존 판정기가 카드사 첫 화면을 거절함. 판정기 수정 후 실제로 열려 있던 창에서 정상 인식 |
+| 20260908-105334-fcaf19ca | 달력 API 혼합, 주문 전 시험 | 6/6 완료, 부분 점검 24.55초. 응답 재사용 없음. URL·본문은 같고 timestamp 헤더가 달랐음 |
 
-The Next step now requires the target fare radio to be checked and the mileage
-total to be positive. A local browser fixture reproduces delayed totals and
-proves that an unpriced selection cannot proceed.
+PID 검사는 실행기와 작업자의 PID가 같다고 가정하지 않는다.
+전달받은 고유 작업자 토큰, 프로세스 생존, 기록 시각, 실행 ID, 목표를 함께 검사한다.
+회귀 시험에서는 실행기·작업자의 PID가 다른 경우를 허용하고, 다른 작업자의 heartbeat는 거절했다.
 
-The hybrid experiment is not qualified for actual orders. Its first live run
-did not reuse a response, so its elapsed time does not demonstrate a hybrid
-speed benefit. Captured session headers are never weakened to force a match.
-The second live partial run used all_headers() and identified timestamp as the
-remaining mismatched header. This is not a qualified production optimization.
-The complete-header API choice follows the [Playwright request documentation](https://playwright.dev/python/docs/api/class-request#request-all-headers).
+‘다음’ 단계는 목표 운임의 라디오 버튼이 선택됐고 총 마일리지가 양수여야 진행한다.
+로컬 브라우저 시험에서 총액이 늦게 표시되는 상황을 재현했으며, 운임이 계산되지 않은 상태에서는 진행하지 않았다.
 
-No result here proves 09:00 new-date opening, Prestige competition, a guarantee
-that an order locks a seat, or final payment. No Astra scheduler is armed.
-The explicit next-day candidate is dev/astra_target.ps1; it starts only within
-the configured morning window and never rolls a missed date to tomorrow.
+혼합 방식은 실제 주문용으로 검증되지 않았다.
+첫 실사이트 시험에서 응답을 재사용하지 못했으므로 해당 소요시간은 혼합 방식의 속도 이득을 입증하지 않는다.
+일치를 억지로 만들기 위해 세션 헤더 비교를 완화하지 않는다.
+두 번째 부분 시험에서는 `all_headers()`를 사용해 남은 헤더 불일치가 `timestamp`임을 찾았다. 이것만으로 실전 최적화가 완료됐다고 볼 수 없다.
+전체 헤더를 읽는 API 선택은 [Playwright 요청 문서](https://playwright.dev/python/docs/api/class-request#request-all-headers)를 따른다.
 
-## Actual payment-window evidence
+이 문서의 결과는 09:00 신규 날짜 개방, 프레스티지 경쟁, 주문에 따른 좌석 확보 보장, 최종 결제를 입증하지 않는다.
+Astra 예약 실행은 등록하지 않았다.
+다음 날 실행 후보인 `dev/astra_target.ps1`은 정해진 아침 시간대에만 시작하며, 놓친 날짜를 다음 날로 자동 연기하지 않는다.
 
-The issuer is ansimclick.hyundaicard.com. The observed first screen offers app
-card and PIN authentication; merchant and amount are not displayed at this
-stage. The verifier now recognizes this specific issuer screen, while rejecting
-lookalike hosts. Neither authentication choice was clicked.
+## 실제 결제창 증거
 
-Browser timing relative to the clock-adjusted planned lead-fire instant:
-inputTravellers send +16.479 s; response completed +22.601 s (HTTP 200);
-issuer document completed +28.752 s. The current top-level orderId parser found
-no identifier; this must not be relabeled as a verified seat hold.
+카드사 주소는 `ansimclick.hyundaicard.com`이다.
+관측한 첫 화면에는 앱카드·PIN번호 인증 방식이 표시되며, 이 단계에는 가맹점과 금액이 아직 표시되지 않는다.
+수정된 판정기는 해당 카드사 화면을 인식하고, 비슷하게 생긴 다른 호스트는 거절한다.
+두 인증 방식 중 어느 것도 누르지 않았다.
 
-The failed original report remains unchanged. Supplementary live verification
-is in payment_window_verified.json in the same run folder. Configuration changes
-made before fire are recorded in configuration-amendment.json.
+시계 오차를 보정한 예정 선발사 시각 기준 브라우저 측정 결과:
 
-## Subsequent speed work
+- `inputTravellers` 요청 전송: +16.479초
+- 응답 완료: +22.601초, HTTP 200
+- 카드사 문서 로딩 완료: +28.752초
 
-See [speed experiments](astra-speed-2026-09-08.md) for the later full automatic
-payment-window pass, the failed hybrid comparison, and the next-day candidate.
-The earlier failure reports and timing bases above are preserved.
+기존 최상위 `orderId` 판정 함수는 식별자를 찾지 못했다. 이 기록을 좌석 확보가 확인된 것으로 바꾸어 해석해서는 안 된다.
+
+최초 실패 보고서는 수정하지 않고 보존했다.
+같은 실행 폴더의 `payment_window_verified.json`에 실제 창을 추가로 확인한 결과를 저장했다.
+발사 전에 변경한 설정은 `configuration-amendment.json`에 기록했다.
+
+## 이후 속도 개선 작업
+
+후속 전체 리허설의 자동 결제창 판정 통과, 혼합 방식 비교 실패, 다음 날 실행 후보는 [속도 개선 시험 기록](astra-speed-2026-09-08.md)에 정리했다.
+위의 초기 실패 기록과 시간 기준은 그대로 보존한다.

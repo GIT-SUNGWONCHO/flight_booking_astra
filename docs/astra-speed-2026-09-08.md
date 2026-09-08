@@ -1,110 +1,91 @@
-# Speed experiments, 2026-09-08
+# 속도 개선 시험 — 2026-09-08
 
-These are already-open-date economy experiments, not 09:00 Prestige competition.
-Only a real payment window counts as a full rehearsal. No provider approval clicks.
+이 문서의 실사이트 시험은 이미 열린 날짜의 일반석을 대상으로 했다. 09:00 신규 개방일의 프레스티지 경쟁 시험과 구분한다.
+전체 리허설은 실제 결제창이 표시돼야 통과한다. 결제창 안의 최종 승인 버튼은 누르지 않는다.
 
-## Baseline reanalysis
+## 기존 실행 재분석
 
-Run `20260908-103834-7bd39c1f`, relative to planned opening, local browser clock:
-first award response +2.742 s; repeated award response +6.870 s;
-fareInformation response +8.758 s; inputTravellers send +13.949 s,
-response +20.071 s. NTP correction is about +0.030 s.
-The macro log returns 3/17 -> 0/17 -> 2/17 when the currency step applies KRW.
-Thus the duplicate calendar/award queries were not an unavoidable server floor.
+실행 `20260908-103834-7bd39c1f`의 예정 오픈 시각을 기준으로, 브라우저 시계로 측정한 결과다.
+첫 좌석 조회 응답은 +2.742초, 반복된 좌석 조회 응답은 +6.870초였다.
+운임 상세(`fareInformation`) 응답은 +8.758초, 주문(`inputTravellers`) 요청 전송은 +13.949초, 응답 완료는 +20.071초였다. NTP 시계 보정값은 약 +0.030초다.
+통화를 KRW로 적용할 때 매크로 진행 위치가 3/17 → 0/17 → 2/17로 돌아갔다.
+따라서 달력·좌석 중복 조회를 피할 수 없는 서버 처리시간으로 볼 수 없다.
 
-## Experiments
+## 시험 결과
 
-| Run | Change | Result | Limits |
+| 실행 ID | 변경 사항 | 결과 | 검증 범위와 한계 |
 | --- | --- | --- | --- |
-| 20260908-125544-cdd11c3f | Prepare KRW; reload departure page; lead 0 | dry/contact ready 14.25 s; no calendar query after fire; one award query at +4.581..5.989 s | Warm screen, 09-01 economy; not an order or full rehearsal; prior baseline used 2.5 s lead |
-| 20260908-130903-ed8ce1d2 | Live date strip, 08-30 -> 09-01 | refused before booking | Old helper rejected cross-month targets |
-| 20260908-131346-3f080ba8 | Cross-month API mapping | refused before booking | Substring selector included the parent UL; fixed exact LI/class selector |
-| 20260908-131700-e6e0e265 | KRW + no reload, 08-30 -> 09-01 | dry/contact ready 11.79 s; award +0.538..2.226 s; fareInformation +2.743..4.473 s | Already-open 09-01 economy; no order; not a full rehearsal |
-| 20260908-132316-4671a109 | Award API prefetch + normal departure reload | dry/contact ready 22.66 s; prefetch unused, aborted | Same request body, tracing header x-dtpc differed; no proven benefit, excluded from live order mode |
-| 20260908-132652-64e3063d | Chrome restart -> daily -> prepare KRW -> fresh anchor 08-30 -> target 08-28 | **17/17, actual Hyundai payment window, 25.66 s; no final approval** | Already-open economy, manually launched daily with relative fire; no OS reboot or 9233 observer |
+| 20260908-125544-cdd11c3f | KRW 사전 준비, 항공편 화면 새로고침, 선발사 0초 | 주문 직전 화면 14.25초. 발사 후 달력 조회 없음. 좌석 조회 1회, +4.581~5.989초 | 준비된 화면, 09-01 일반석. 주문 생성 및 전체 리허설 아님. 기존 기준 실행은 2.5초 선발사 사용 |
+| 20260908-130903-ed8ce1d2 | 날짜 띠에서 08-30 → 09-01 이동 | 예약 진행 전에 발사 거절 | 기존 함수가 다른 달의 목표 날짜를 거절함 |
+| 20260908-131346-3f080ba8 | 서버 날짜 목록으로 월 경계 처리 | 예약 진행 전에 발사 거절 | 부분 문자열 선택자가 부모 UL까지 포함함. 실제 LI/클래스를 정확히 찾도록 수정 |
+| 20260908-131700-e6e0e265 | KRW 사전 준비, 새로고침 없이 08-30 → 09-01 이동 | 주문 직전 화면 11.79초. 좌석 조회 +0.538~2.226초, 운임 상세 +2.743~4.473초 | 이미 열린 09-01 일반석. 주문 생성 없음. 전체 리허설 아님 |
+| 20260908-132316-4671a109 | 좌석 조회 API 사전 요청 후 항공편 화면 새로고침 | 주문 직전 화면 22.66초. 사전 요청 중단, 응답 재사용 없음 | 요청 본문은 같았으나 추적용 x-dtpc 헤더가 다름. 속도 이득이 없어 실전 주문 경로에서 제외 |
+| 20260908-132652-64e3063d | Chrome 재시작 → daily → KRW 사전 준비 → 08-30 새 조회 → 목표 08-28 | **17/17 완료, 실제 현대카드 결제창 25.66초, 최종 승인 없음** | 이미 열린 날짜의 일반석. daily를 수동으로 시작하고 상대 시각으로 발사. OS 재부팅·9233 계측기 제외 |
 
-The recorder completed its six clicks in 13.08 s; the usable contact screen took
-14.25 s. The latter is the comparison metric. A remaining ~4.6 s before the first
-award request motivates a no-reload departure-date-strip experiment.
-Currency preparation was applied without a calendar return in this particular
-run (`calendarReturns=0`). The guard that checks fare selection after currency
-changes remains active; it must not be removed to improve an apparent time.
+첫 번째 부분 시험에서 매크로의 6개 클릭은 13.08초에 끝났지만, 실제로 사용할 수 있는 연락처 화면은 14.25초에 준비됐다. 비교 지표는 후자다.
+첫 좌석 요청 전까지 약 4.6초가 남아 있어, 항공편 화면을 새로고침하지 않고 날짜 띠로 이동하는 방식을 시험했다.
+이 실행의 통화 사전 준비에서는 달력으로 돌아가지 않았다(`calendarReturns=0`).
+통화 변경 후 운임 선택 상태를 검사하는 조건은 유지한다. 표시되는 시간만 줄이려고 이 검사를 제거해서는 안 된다.
 
-## Changes under test
+## 변경한 기능
 
-- `--prepare-krw`: before the deadline, apply KRW using the observed controls and
-  verify the actual departure-page currency. Restore the previously shown date
-  if changing currency returns to the calendar; do not require tomorrow's date
-  to exist before opening.
-- `--no-reload`: explicit experiment, start from another date on the existing departure page,
-  use the site's date strip, require a subsequent API date confirmation. Reject
-  same-date starts to avoid accepting stale seat data. Local test creates a
-  disabled-to-enabled transition and verifies no document reload.
-- `--refresh-date`: first click a different already-open date, then wait for its
-  fresh API response and matching UI date before selecting the actual target.
-  This avoids assuming that a stale pre-opening date strip updates itself.
-  A newly opening date still needs actual 09:00 testing.
-- `--mode hybrid-award`: dry-only extension of the same-session response bridge
-  to the observed awardAvailability endpoint. Body and session headers must match.
-  No booking or traveller endpoint is replayed.
-- KE's served `/5064.10d33b7f878c872c.js` explicitly assigns
-  `b.timestamp=(new Date).getTime().toString()` in the request interceptor.
-  Refresh this clock field for prefetch; accept only a 13-digit UI timestamp
-  within 5 seconds. Never relax session-header or date/body comparisons.
-- Date preparation previously only clicked next month even when the target was
-  earlier. Select the observed `-prev` or `-next` control based on the visible
-  year/month. First patched run exposed a missing `re` import, then corrected it.
+- `--prepare-krw`: 준비 마감 전에 실제 화면의 통화 선택 기능으로 KRW를 적용하고 확인한다. 통화 변경으로 달력에 돌아오면 이전에 보고 있던 날짜를 복원한다. 아직 열리지 않은 내일 목표 날짜를 사전에 선택할 수 있다고 가정하지 않는다.
+- `--no-reload`: 다른 날짜의 항공편 화면에서 시작해 날짜 띠로 목표 날짜를 선택한다. 선택 후 도착한 API 응답의 날짜를 확인해야 진행한다. 낡은 좌석 정보를 그대로 쓰지 않도록 같은 날짜에서의 시작은 거절한다. 로컬 시험에서는 선택 불가 → 선택 가능 전이와 문서 새로고침이 없는 것을 확인했다.
+- `--refresh-date`: 먼저 이미 열린 다른 날짜를 선택한다. 그 날짜의 새 API 응답과 화면 날짜가 일치한 뒤 실제 목표 날짜를 선택한다. 오픈 전에 띄운 날짜 띠가 저절로 갱신된다고 가정하지 않는다. 신규 날짜 개방은 실제 09:00 시험이 필요하다.
+- `--mode hybrid-award`: 같은 세션에서 미리 받은 응답을 정상 화면 요청에 연결하는 실험을 `awardAvailability`까지 확장했다. 주문 전 부분 시험 전용이며, 요청 본문과 세션 헤더가 일치해야 한다. 예약·승객 정보 제출 API는 재전송하지 않는다.
+- 대한항공이 배포한 `/5064.10d33b7f878c872c.js`의 요청 처리 코드에서 `b.timestamp=(new Date).getTime().toString()`을 확인했다. 사전 요청에는 이 현재 시각 값을 갱신하며, 화면 요청의 시각은 5초 이내인 13자리 숫자만 허용한다. 세션 헤더·날짜·본문의 일치 조건은 완화하지 않는다.
+- 날짜 준비 코드가 목표보다 뒤의 달에서도 다음 달만 누르던 문제를 수정했다. 보이는 연·월에 따라 실제 `-prev` 또는 `-next` 버튼을 선택한다. 첫 수정 시험에서 `re` 가져오기 누락이 드러나 추가로 수정했다.
 
-No faster-than-six-seconds claim and no seat-lock claim is supported yet.
+아직 6초 이내 주문 전송이나 좌석 확보를 입증한 결과는 없다.
 
-## Validation
+## 검사 결과
 
-- Local currency preflight test passes (apply/redraw, unchanged KRW, wrong date timeout).
-- Live-departure test passes (fresh anchor response, same-date refusal, unavailable
-  -> available transition, no document reload, cross-month mapping, stale/mismatched list refusal).
-- Hybrid tests: 5 pass, including real local HTTP prefetch-to-UI reuse, fresh timestamp,
-  unchanged session, changed-date rejection, expired cache, and no pre-open fetch.
-- Runtime tests: 11 pass. Probe JavaScript: 30 checks pass.
-- The eight `t.sh --gate` test programs all passed; invoked directly on Windows
-  without the shell script's blanket headless-Chrome kill. Logs: `dev-shots/gate-speed/`.
+- 통화 사전 준비 로컬 시험 통과: 적용 후 화면 재표시, 이미 KRW인 경우, 잘못된 날짜의 제한시간 초과 처리.
+- 새로고침 없는 날짜 이동 시험 통과: 중간 날짜의 새 응답 확인, 같은 날짜 시작 거절, 선택 불가 → 가능 전이, 문서 새로고침 없음, 월 경계 대응, 낡거나 불일치하는 날짜 목록 거절.
+- 혼합 방식 시험 5개 통과: 로컬 HTTP 서버와 실제 브라우저를 이용한 응답 재사용, 현재 시각 갱신, 세션 유지, 다른 날짜 거절, 만료된 응답 거절, 오픈 전 요청 금지.
+- 실행 관리 시험 11개, JavaScript 계측 코드 검사 30항목 통과.
+- `t.sh --gate`에 해당하는 핵심 시험 프로그램 8개 모두 통과. Windows에서 각 프로그램을 직접 실행했으며, 셸 스크립트의 모든 헤드리스 Chrome 강제 종료 기능은 사용하지 않았다. 로그는 `dev-shots/gate-speed/`에 보관했다.
 
-## Remaining latency
+## 남아 있는 지연
 
-In the 11.79 s dry run, searchFamilyInfoList occupied +4.498..6.751 s,
-searchMemberSubscriptions +8.401..9.746 s, validateMember +10.445..11.692 s.
-These are network response intervals, not pure server CPU time. Membership or
-eligibility responses must not be blindly cached to improve a benchmark.
+11.79초 부분 시험에서 가족 정보 조회(`searchFamilyInfoList`)는 +4.498~6.751초,
+회원 구독 정보 조회(`searchMemberSubscriptions`)는 +8.401~9.746초,
+회원 검증(`validateMember`)은 +10.445~11.692초 구간을 차지했다.
+이는 네트워크 요청·응답 구간이며 순수 서버 CPU 처리시간이 아니다.
+측정 시간을 줄이기 위해 회원 정보나 자격 검증 응답을 무조건 캐시해서는 안 된다.
 
-## Full rehearsal result and next-day candidate
+## 전체 리허설 결과와 다음 날 실행 후보
 
-Run `20260908-132652-64e3063d`: checkpoint passed; macro exit 0; daily exit 0;
-payment-window contract passed. Relative to planned opening, NTP-corrected:
-anchor query +0.484..1.983 s; target query +2.560..4.137 s;
-fareInformation +4.742..6.231 s; inputTravellers **+11.286..17.374 s**.
-Payment window verified in **25.66 s** from actual fire. This is not final payment.
+실행 `20260908-132652-64e3063d`는 준비 점검 통과, 매크로 종료 코드 0, daily 종료 코드 0, 실제 결제창 도달 기준 통과를 기록했다.
+예정 오픈 시각을 기준으로 NTP 시계 보정을 적용한 결과는 다음과 같다.
 
-The earlier full baseline's order request was +13.979 s with NTP correction,
-so this single full rehearsal sent it about 2.69 s earlier. Dates, launch lead,
-and server response times differ; this is not a repeated controlled benchmark.
-Six-second order submission has **not** been achieved.
+- 날짜 목록 갱신용 조회: +0.484~1.983초
+- 목표 날짜 조회: +2.560~4.137초
+- 운임 상세(`fareInformation`): +4.742~6.231초
+- 주문(`inputTravellers`): **요청 전송 +11.286초, 응답 완료 +17.374초**
+- 실제 발사부터 결제창 표시 판정까지: **25.66초**. 최종 결제는 수행하지 않았다.
 
-The observed inputTravellers response has root `pnr`, boundList, traveller fare
-information, ticket-time-limit fields, and warning messages. Only field names and
-types were saved (`dev-shots/order-api-shape.json`); no real identifiers or PII.
-The older orderId-only parser remains conservative and is not used as proof of
-seat locking. Membership response fields include status, activity, subscription
-status and validity dates; they were not cached or used to bypass validation.
+이전 전체 실행의 주문 전송은 NTP 보정 후 +13.979초였다. 이번 단일 리허설에서는 약 2.69초 빨랐다.
+날짜·선발사 시간·서버 응답시간이 달라, 동일 조건에서 반복한 비교 시험은 아니다.
+**6초 내 주문 전송은 아직 달성하지 못했다.**
 
-`dev/astra_target.ps1` now defaults to the tested UI path with KRW preflight and
-an anchor refresh; `-CalendarFallback` retains the earlier calendar path.
-Tomorrow's plan: prepare 2027-08-30, at opening select 2027-09-01 to refresh the
-strip, then select target 2027-09-04. The fresh server response is required before
-continuing. New-date opening and Prestige competition remain unverified.
-No scheduler was installed; actual-run ownership is still awaiting the user's
-answer to the earlier question. Claude's files, profiles and tasks are unchanged.
+실제 `inputTravellers` 응답에는 최상위 `pnr`, `boundList`, 승객별 운임, 발권 시한, 경고 메시지 필드가 있었다.
+`dev-shots/order-api-shape.json`에는 필드명과 자료형만 저장했고, 실제 식별자나 개인정보 값은 저장하지 않았다.
+기존 `orderId` 전용 판정 함수는 보수적으로 유지했으며 좌석 확보의 증거로 사용하지 않는다.
+회원 응답에는 상태·활동·구독 상태·유효기간이 포함돼 있었다. 이 응답을 캐시하거나 검증을 생략하지 않았다.
 
-The rehearsal wrapper now forwards the same fast-path options to daily.py.
-For a subsequent authorized payment-window rehearsal (which creates an order),
-choose a date without a pending duplicate reservation and use:
-`dev/rehearse.py --route ICN --from FCO --minutes 6 --no-watch --start departure --prepare-krw --no-reload --date MM-DD --prepare-date MM-DD --refresh-date MM-DD`.
-Use `--partial-dry` for a comparison that stops before creating an order.
+`dev/astra_target.ps1`의 기본 경로는 KRW 사전 준비와 날짜 목록 갱신을 사용하는 화면 조작 방식이다.
+`-CalendarFallback` 옵션으로 이전 달력 경로를 사용할 수 있다.
+2026-09-09 계획은 2027-08-30 화면에서 준비한 뒤, 오픈 시각에 2027-09-01을 조회해 날짜 띠를 갱신하고, 목표 2027-09-04를 선택하는 것이다.
+새 서버 응답을 확인해야 다음 단계로 진행한다. 신규 개방일과 프레스티지 경쟁은 아직 검증하지 못했다.
+Astra 예약 실행은 등록하지 않았다. 앞서 질문한 실제 주문 담당에 대한 사용자 답변을 기다리고 있다.
+Claude의 파일·프로필·예약 작업은 변경하지 않았다.
+
+리허설 실행기에서도 동일한 빠른 경로 옵션을 `daily.py`에 전달한다.
+다음에 결제창까지 리허설할 때는 주문이 생성되므로, 중복되는 미완료 예약이 없는 날짜를 선택하고 아래 명령을 사용한다.
+
+```text
+dev/rehearse.py --route ICN --from FCO --minutes 6 --no-watch --start departure --prepare-krw --no-reload --date MM-DD --prepare-date MM-DD --refresh-date MM-DD
+```
+
+주문 생성 전까지만 비교하려면 `--partial-dry`를 추가한다.

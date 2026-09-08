@@ -1,13 +1,16 @@
-# Astra worktree
+# Astra 작업 폴더 운영 규칙
 
-This worktree belongs to Codex. The sibling flight_booking directory belongs to
-Claude; do not edit it, change its schedules, or attach to ports 9222/9223.
-Use ports 9232 (booking) and 9233 (observation) and local .debug-profile* folders.
-Never kill Chrome by image name. Never reuse or copy a live Chrome profile.
-Rehearsal acceptance requires a real payment window (user instruction 2026-09-08).
-Opening that window and preceding order creation are authorized; never approve
-the payment inside it. Explicit --partial-dry is only partial verification.
-The user permits concurrent dry tests with Claude on separate profiles. Do not
-create duplicate orders or alter Claude's sessions.
-Record run IDs, input configuration, build hashes and actual test coverage.
-Do not describe a fixture pass as a live-site pass or a dry run as a seat hold.
+이 작업 폴더는 Codex가 사용한다. 옆의 `flight_booking` 폴더는 Claude 소유이므로 파일·예약 작업을 수정하거나 포트 9222/9223에 연결하지 않는다.
+Astra는 예약용 9232, 계측용 9233 포트와 이 폴더의 `.debug-profile*`을 사용한다.
+Chrome 프로세스 이름으로 일괄 종료하지 않는다. 사용 중인 Chrome 프로필을 재사용하거나 복사하지 않는다.
+
+사용자의 2026-09-08 지시에 따라 리허설은 실제 결제창이 표시돼야 통과한다.
+결제창을 열기 전 필요한 주문 생성은 허용된다. 결제창 안에서 최종 결제를 승인하지 않는다.
+명시적인 `--partial-dry`는 부분 점검에 해당한다.
+사용자는 별도 프로필에서 Claude와 주문 전 시험을 병행하는 것을 허용했다. 중복 주문을 만들거나 Claude의 세션을 변경하지 않는다.
+
+실행 ID, 입력 설정, 빌드 해시, 실제 시험 범위를 기록한다.
+로컬 시험 통과를 실사이트 통과로, 주문 전 시험을 좌석 확보로 표현하지 않는다.
+
+검토 결과, 시험 기록, 남은 과제, 인수인계 등 문서는 한글로 작성한다.
+파일명·명령어·코드 식별자·실행 ID는 정확한 원문을 유지한다. (사용자 요청)

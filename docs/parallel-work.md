@@ -1,37 +1,43 @@
-# Parallel ownership and release target
+# 병행 작업 범위와 실전 목표
 
-- Claude retains the sibling flight_booking checkout, ports 9222/9223 and ke_* tasks.
-- Astra uses this worktree, branch codex/hybrid-booking, ports 9232/9233 and local logs.
-- Baseline HEAD: debee2aedb8fab5ec4342867bbad9d190a049972.
-- The uncommitted setup.py was copied as the starting point; its original patch is
-  saved under ignored dev-shots/baseline. Original files were not modified.
-- Credentials are local .env only. Browser profiles were not copied.
-- Never run taskkill by Chrome image name. Each runner may stop only its owned PID.
-- The user confirmed that parallel tabs work. Parallel profile use is allowed;
-  avoid account logout, session deletion and duplicate order creation.
-- Updated acceptance: rehearsals must open the actual payment window. Preceding
-  order/temporary hold creation is authorized; final payment approval is excluded.
+- Claude는 옆 폴더 `flight_booking`, 포트 9222/9223, 기존 `ke_*` 예약 작업을 사용한다.
+- Astra는 이 작업 폴더, `codex/hybrid-booking` 브랜치, 포트 9232/9233, 별도 로그를 사용한다.
+- 분기 기준 커밋: `debee2aedb8fab5ec4342867bbad9d190a049972`.
+- 당시 미커밋 상태였던 `setup.py`를 출발점으로 복사했다. 원본 변경 내역은 Git에서 제외된 `dev-shots/baseline`에 보관했다. Claude 원본 파일은 수정하지 않았다.
+- 계정 자격정보는 로컬 `.env`에만 둔다. 브라우저 프로필은 복사하지 않았다.
+- Chrome 프로세스 이름으로 일괄 종료하지 않는다. 각 실행기는 자신이 소유한 PID만 종료할 수 있다.
+- 사용자는 여러 탭의 병행 사용이 가능함을 확인했다. 별도 프로필의 병행 사용은 허용되지만, 다른 작업의 계정 로그아웃·세션 삭제·중복 주문은 피한다.
+- 리허설은 실제 결제창을 열어야 통과한다. 그 전에 필요한 주문·임시 예약 생성은 허용되며, 최종 결제 승인은 제외한다.
 
-Confirmed target: execution 2026-09-09 09:00 KST; departure 2027-09-04;
-FCO -> ICN, Prestige, one adult, spouse's SKYPASS account.
+확정된 목표는 **2026-09-09 09:00 KST 실행, 2027-09-04 출발, FCO → ICN, 프레스티지 성인 1명, 배우자 스카이패스 계정**이다.
 
-No Astra scheduled booking task has been installed. Existing Claude schedules
-remain unchanged. The winning implementation must be selected before arming
-a single actual reservation run. Hybrid remains dry-only until its live
-correctness and speed benefit are established.
+Astra 예약 작업은 아직 등록하지 않았다. Claude의 기존 예약 작업은 변경하지 않는다.
+실제 주문을 실행할 담당과 사용할 구현을 정한 뒤 한 번의 실전 예약 실행을 준비한다.
+혼합 API 방식은 실사이트의 정상 동작과 속도 이득이 입증될 때까지 주문 전 부분 시험에만 사용한다.
 
-Runtime results: dev-shots/runs/<runId>/ (manifest, statuses, network, final reports).
-Python environment: .venv; dependency pins: requirements.lock.txt.
+실행 결과는 `dev-shots/runs/<runId>/`에 저장한다. 실행 설정, 상태, 네트워크 기록, 최종 보고서를 포함한다.
+Python 환경은 `.venv`, 의존성 버전 고정 파일은 `requirements.lock.txt`다.
 
-Use dev/astra_browsers.ps1, not legacy launch scripts. Rehearsal entry:
-`.venv/Scripts/python.exe dev/rehearse.py --no-watch --route ICN --from FCO`.
-This restarts only the Astra booking profile, then runs daily -> autorun in
-economy payment-window mode. It verifies visible merchant and amount on the
-new payment window. It never approves the payment inside that window.
-`--partial-dry` is available for limited tests and cannot qualify a full rehearsal.
-Neither kind of daytime rehearsal proves 09:00 new-date opening or winning a seat.
-# Chrome identification
+## 리허설 실행
 
-The Astra launcher saves Chrome profile names as `ASTRA · 9232` and
-`ASTRA · 9233`. Web tabs also show the port in their title and a small
-non-clickable badge at the bottom left. Use `dev/astra_browsers.ps1` on Windows.
+브라우저는 `dev/astra_browsers.ps1`로 실행한다. 예전 실행 스크립트를 직접 사용하지 않는다.
+기본 리허설 명령은 다음과 같다.
+
+```text
+.venv/Scripts/python.exe dev/rehearse.py --no-watch --route ICN --from FCO
+```
+
+Astra 예약용 프로필만 재시작한 뒤 `daily → autorun` 순서로 일반석 결제창까지 진행한다.
+현대카드 창은 실제 인증 방식 선택 화면이 표시됐는지 판정한다. 다른 지원 결제창은 해당 판정기의 조건을 따른다.
+현대카드 첫 인증 화면에는 가맹점과 금액이 표시되지 않으므로, 그 두 값까지 확인했다고 보고하지 않는다.
+결제창 안의 최종 승인은 수행하지 않는다.
+
+`--partial-dry`는 주문 전까지만 진행하는 부분 시험이며, 전체 리허설 통과로 인정하지 않는다.
+낮 시간의 시험으로 09:00 신규 날짜 개방이나 좌석 확보 경쟁의 성공을 입증할 수 없다.
+빠른 경로의 옵션과 후속 시험 결과는 [속도 개선 시험 기록](astra-speed-2026-09-08.md)을 따른다.
+
+## Chrome 구분 표시
+
+Astra 실행기는 Chrome 프로필 이름을 `ASTRA · 9232`, `ASTRA · 9233`으로 저장한다.
+웹 탭 제목에도 포트를 표시하고, 화면 왼쪽 아래에는 클릭을 가로막지 않는 작은 표시를 붙인다.
+Windows에서는 `dev/astra_browsers.ps1`을 사용한다.
