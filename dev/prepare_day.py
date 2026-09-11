@@ -18,7 +18,7 @@ from worker_health import wait_worker
 from stage_process import StageProcess
 
 ROOT=Path(__file__).resolve().parent.parent
-PY=str(ROOT/'.venv/Scripts/python.exe')
+PY=str(ROOT/('.venv/Scripts/python.exe' if sys.platform=='win32' else '.venv/bin/python'))
 
 
 def run_stage(report, out, deadline, name, args, timeout=240):
@@ -79,6 +79,9 @@ def main(a):
         return [PY,str(ROOT/'dev/setup.py'),cfg['destination'],'--from',cfg['origin'],
                 '--port',str(port),'--date',cfg['rehearsalDepartureDate']]+(['--departure'] if departure else [])
     def boot(port):
+        if sys.platform!='win32':
+            # macOS/Linux 에는 파워셸 런처가 없다. 같은 포트·프로필 규칙의 셸 판을 쓴다.
+            return [str(ROOT/'dev/astra_browsers.sh'),'-Port',str(port)]+(['-Restart'] if a.cold else [])
         return [find_shell(),'-NoProfile','-ExecutionPolicy','Bypass','-File',str(ROOT/'dev/astra_browsers.ps1'),
                 '-Port',str(port)]+(['-Restart'] if a.cold else [])
     def child(name,args):
