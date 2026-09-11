@@ -65,7 +65,7 @@ def build_hash():
 
 def runtime_hash():
     digest = hashlib.sha256()
-    paths = list((ROOT / 'dev').glob('*.py')) + list((ROOT / 'dev').glob('*.ps1'))
+    paths = list((ROOT / 'dev').glob('*.py')) + list((ROOT / 'dev').glob('*.ps1')) + list((ROOT / 'dev').glob('*.sh'))
     paths += list((ROOT / 'config').glob('*.json')) + [ROOT / 'ke_award/calendar_probe.js']
     paths += [ROOT / 'requirements.lock.txt', ROOT / 'userscript/ke-award-macro.user.js']
     for path in sorted(paths):
