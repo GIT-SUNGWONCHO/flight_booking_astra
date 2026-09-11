@@ -5,6 +5,7 @@ import json
 import os
 import uuid
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -22,9 +23,19 @@ def output_dir():
 def atomic_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
+    tmp = path.with_name(path.name + f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
     tmp.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    try:
+        for attempt in range(6):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError:
+                if attempt == 5:
+                    raise
+                time.sleep(0.01 * (2 ** attempt))
+    finally:
+        tmp.unlink(missing_ok=True)
 
 def resolve_time(spec, now=None):
     now = now or datetime.now(KST)
@@ -55,6 +66,7 @@ def build_hash():
 def runtime_hash():
     digest = hashlib.sha256()
     paths = list((ROOT / 'dev').glob('*.py')) + list((ROOT / 'dev').glob('*.ps1'))
+    paths += list((ROOT / 'config').glob('*.json')) + [ROOT / 'ke_award/calendar_probe.js']
     paths += [ROOT / 'requirements.lock.txt', ROOT / 'userscript/ke-award-macro.user.js']
     for path in sorted(paths):
         digest.update(path.relative_to(ROOT).as_posix().encode())

@@ -89,6 +89,7 @@
     openWaitSince: 0,     // 목표 날짜가 열리기를 기다리기 시작한 시각(페이지 이동을 넘어 유지)
     soldOutSince: 0,      // 고른 등급이 '매진 확정' 으로 처음 보인 시각(페이지 이동을 넘어 유지)
     openReloads: 0,       // 날짜/좌석을 기다리며 새로고침한 횟수 (발사가 일렀는지 계측)
+    navigation: [],       // 경로·단계만 저장. 쿼리/계정/요청 본문은 기록하지 않음
     openRetryMs: 1200,    // 목표 날짜가 없을 때 새로고침 간격 (서버 부담 하한)
     openWaitMaxMs: 180000,// 이만큼 기다려도 안 열리면 사람을 부른다
     /* 좌석이 매진(soldout:true)으로 확정돼도 몇 백ms 늦게 풀릴 수 있어 이만큼은
@@ -559,6 +560,8 @@
     S.blocks = [];        // 이번 실행에서 무엇이 버튼을 덮었나 (가림 진단)
     S.endedAt = 0;
     S.problem = false;
+    S.message = '';
+    S.navigation = [];
     S.fixSince = 0; S.fixPhase = 0; S.fixClickAt = 0; S.fixOpens = 0;
     S.times = [];
     S.byCause = {};
@@ -596,9 +599,23 @@
   function pause(why) {
     S.playing = false;
     S.playAfterReload = false;
+    if (!S.endedAt) S.endedAt = Date.now();
     var took = elapsed();
+    S.message = '재생 중지' + (why ? ' - ' + why : '') + (took ? '  [총 ' + secs(took) + ']' : '');
     save();
-    log('재생 중지' + (why ? ' - ' + why : '') + (took ? '  [총 ' + secs(took) + ']' : ''));
+    log(S.message);
+  }
+
+  // 재조회를 예약한 문서는 더 이상 클릭/종료 판정을 하지 않는다.
+  // 새 문서만 같은 단계에서 이어받으며 누적 개방 대기시간은 유지한다.
+  function reloadForOpen(message) {
+    S.playFrom = S.idx;
+    S.playAfterReload = true;
+    S.playing = false;
+    S.message = message;
+    save();
+    log(message);
+    setTimeout(function () { location.reload(); }, 0);
   }
 
   /* "새로고침한 다음 처음부터 재생" 예약. 지금 당장은 재생하지 않는다.
@@ -746,6 +763,41 @@
 
     var step = S.steps[S.idx];
     if (!step) { pause('전체 단계 완료'); return; }
+
+    var nav = S.navigation || (S.navigation = []);
+    if (!nav.length || nav[nav.length - 1].path !== location.pathname) {
+      nav.push({at: now, path: location.pathname, step: S.idx + 1});
+      if (nav.length > 20) nav.shift();
+      save();
+    }
+    // 첫 단계에도 경로 검증이 필요하다. 세션 이탈 화면에서 날짜를 찾거나
+    // 임의 검색 버튼을 누르지 않고, 잠깐의 라우팅 전환만 기다린다.
+    if (step.dynamicDate && step.url && hereUrl().indexOf(step.url) < 0) {
+      beganWaiting(now);
+      phase('달력 경로 이탈', now);
+      if (tooLong(Math.min(S.stepTimeoutMs, 2000))) {
+        finish('달력 화면 이탈: 목표 날짜 선택 전 ' + location.pathname
+               + ' 로 이동했습니다 - 로그인·사이트 안내·노선 상태를 확인하세요', true);
+      }
+      return;
+    }
+    // 성공 응답이 없는 상태를 매진으로 설명하거나 이전 결과를 클릭하지 않는다.
+    if (step.dynamicCabin && U.onDeparture()) {
+      var np = W.KE_PROBE || window.KE_PROBE;
+      var net = np && np.availabilityState ? np.availabilityState() : null;
+      if (net && net.state !== 'valid') {
+        beganWaiting(now);
+        phase('항공편 조회 응답 대기', now);
+        if (net.state !== 'pending') {
+          finish('항공편 조회 실패 (' + net.state + (net.status ? ', HTTP ' + net.status : '')
+                 + (net.code ? ', 코드 ' + net.code : '')
+                 + ') - 좌석 상태 판정 불가. 정상 조회부터 다시 확인하세요', true);
+        } else if (tooLong(S.stepTimeoutMs)) {
+          finish('항공편 조회 응답 대기 시간 초과 - 좌석 상태 판정 불가', true);
+        }
+        return;
+      }
+    }
 
     /* 페이지가 넘어가는 단계 바로 다음은, 새 화면이 뜬 뒤에 눌러야 한다.
      *
@@ -1076,9 +1128,7 @@
       lastOpenReloadAt = now;
       S.openReloads = (S.openReloads || 0) + 1;
       S.idx = 0;
-      save();
-      log('목표 날짜(' + S.expectDate + ')가 아직 달력에 없습니다 - 새로고침하고 다시 봅니다');
-      setTimeout(function () { location.reload(); }, 0);
+      reloadForOpen('목표 날짜(' + S.expectDate + ')가 아직 달력에 없습니다 - 새로고침하고 다시 봅니다');
       return;
     }
 
@@ -1160,10 +1210,8 @@
         if (now - lastOpenReloadAt < S.openRetryMs) return;
         lastOpenReloadAt = now;
         S.openReloads = (S.openReloads || 0) + 1;
-        save();
-        log('조회 결과에 "' + S.cabin + '" 이(가) 없습니다 - 새로고침하고 다시 봅니다 ('
+        reloadForOpen('조회 결과에 "' + S.cabin + '" 이(가) 없습니다 - 새로고침하고 다시 봅니다 ('
             + Math.round((now - S.openWaitSince) / 1000) + '초째)');
-        setTimeout(function () { location.reload(); }, 0);
         return;
       }
 

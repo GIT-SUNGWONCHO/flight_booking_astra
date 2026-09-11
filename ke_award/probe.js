@@ -21,6 +21,33 @@
   var CAP = 200000;        // 한 건당 글자 수 상한 (localStorage 가 아니라 메모리다)
   var hits = [];
   var stamp = 0;         // 기록이 늘 때마다 증가. 화면 갱신 여부를 값싸게 판단한다
+  var availability = null, availabilitySeq = 0;
+
+  function beginAvailability(url) {
+    if (!/\/awardAvailability(?:[.?/#]|$)/i.test(String(url))) return 0;
+    var seq = ++availabilitySeq;
+    availability = {seq: seq, state: 'pending', startedAt: Date.now()};
+    return seq;
+  }
+  function endAvailability(seq, status, body) {
+    // 오래 걸린 이전 요청이 새 조회 상태를 덮지 못하게 한다.
+    if (!seq || seq !== availabilitySeq) return;
+    var state = status === 200 ? 'valid' : (status ? 'http-error' : 'network-error');
+    var code = null;
+    if (state === 'valid') {
+      try {
+        var d = JSON.parse(body);
+        if (d && (d.error || d.errors || d.errorCode ||
+            (d.code != null && !/^(0|0000|200|SUCCESS)$/i.test(String(d.code))))) {
+          state = 'application-error';
+          var rawCode = String(d.code || d.errorCode || '');
+          if (/^[A-Z0-9_.-]{1,32}$/i.test(rawCode)) code = rawCode;
+        } else if (!d || !Array.isArray(d.upsellBoundAvailList)) state = 'schema-error';
+      } catch (e) { state = 'schema-error'; }
+    }
+    availability = {seq: seq, state: state, status: status, code: code,
+                    startedAt: availability.startedAt, completedAt: Date.now()};
+  }
 
   /* 좌석/운임 조회로 보이는 응답만 남긴다. 전부 남기면 로그인 토큰 같은 것까지
    * 딸려 들어와 내보내기가 위험해진다. */
@@ -54,6 +81,7 @@
     if (typeof of === 'function' && !of.__keProbe) {
       var nf = function (input, init) {
         var url = (input && input.url) || input;
+        var aq = beginAvailability(url);
         var rq = null;
         try {
           var h = {};
@@ -69,12 +97,13 @@
         return of.apply(this, arguments).then(function (res) {
           try {
             if (WANTED.test(String(url))) {
-              res.clone().text().then(function (t) { note('fetch', url, res.status, t, rq); },
-                                      function () {});
+              res.clone().text().then(function (t) {
+                endAvailability(aq, res.status, t); note('fetch', url, res.status, t, rq);
+              }, function () { endAvailability(aq, 0, ''); });
             }
           } catch (e) {}
           return res;
-        });
+        }, function (error) { endAvailability(aq, 0, ''); throw error; });
       };
       nf.__keProbe = true;
       W.fetch = nf;
@@ -98,14 +127,20 @@
       };
       XP.send = function (body) {
         var self = this;
+        var aq = beginAvailability(self.__keUrl);
         try { self.__keBody = (typeof body === 'string') ? body : null; } catch (e) {}
         try {
           self.addEventListener('load', function () {
             var t = '';
             try { t = (self.responseType === '' || self.responseType === 'text') ? self.responseText : ''; } catch (e) {}
+            if (self.responseType === 'json') t = JSON.stringify(self.response);
+            endAvailability(aq, self.status, t);
             note('xhr', self.__keUrl, self.status, t,
                  { method: self.__keMethod || 'GET', body: self.__keBody || null,
                    headers: self.__keHeaders || {} });
+          });
+          ['error', 'abort', 'timeout'].forEach(function (event) {
+            self.addEventListener(event, function () { endAvailability(aq, 0, ''); }, {once: true});
           });
         } catch (e) {}
         return os.apply(this, arguments);
@@ -366,6 +401,7 @@
     hits: function () { return hits; },
     stamp: function () { return stamp; },
     keCabin: keCabin,
+    availabilityState: function () { return availability; },
     reAsk: reAsk,
     /* 좌석 조회 응답이 한 번이라도 왔는가.
      *

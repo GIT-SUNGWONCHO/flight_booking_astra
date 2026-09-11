@@ -74,6 +74,11 @@ def run_setup(cmd, deadline: datetime, log=print, gap: float = 3.0, min_tries: i
             st = json.loads(tail[-1]) if tail else {}
             if not isinstance(st, dict) or r.returncode != 0:
                 st = {"ok": False, "why": st.get("why", "setup 비정상 종료") if isinstance(st, dict) else "setup 결과 형식 오류"}
+        except subprocess.TimeoutExpired as e:
+            def decoded(value):
+                return value.decode('utf-8', errors='replace') if isinstance(value, bytes) else (value or '')
+            out = decoded(e.stdout) + NL + decoded(e.stderr)
+            st = {"ok": False, "why": f"setup 제한시간 초과 ({min(420, left):.1f}초)"}
         except Exception as e:
             st = {"ok": False, "why": f"setup 실행 실패: {e}"[:90]}
 

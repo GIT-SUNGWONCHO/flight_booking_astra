@@ -237,6 +237,8 @@ def main() -> int:
             print(json.dumps({"ok": False, "why": f"브라우저 없음 ({e})"[:80]}, ensure_ascii=False))
             return 1
         ctx = b.contexts[0]
+        from browser_identity import mark_context
+        mark_context(ctx, int(cdp.rsplit(':',1)[1]))
         js = USER.read_text(encoding="utf-8")
         ctx.add_init_script("if (location.hostname === 'www.koreanair.com') {\n" + js + "\n}")
         pages = [p for p in ctx.pages if "koreanair" in p.url]
@@ -263,6 +265,12 @@ def main() -> int:
         page.goto("https://www.koreanair.com/kr/ko", wait_until="load", timeout=60000)
         page.wait_for_timeout(11000)
         inject()
+        # 이미 로그인된 계측 프로필에도 동의 창이 뜬다. 로그인 함수 안에서만
+        # 처리하면 준비는 통과하지만 발사 때 달력 버튼을 가린다.
+        consent = page.get_by_text('필수 쿠키만 허용', exact=True)
+        if consent.count() and consent.first.is_visible():
+            consent.first.evaluate('(button) => button.click()')
+            page.wait_for_timeout(500)
 
         # 로그인 확인. 헤더가 shadow DOM 안이고 늦게 그려져서, 한 번만 보고 판단하면
         # 멀쩡히 로그인돼 있는데도 '로그인 필요' 로 읽는다 (실측 2026-08-30 01:25:

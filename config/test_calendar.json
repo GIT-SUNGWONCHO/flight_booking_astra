@@ -1,0 +1,21 @@
+{
+  "confirmedOn": "2026-09-10",
+  "timezone": "Asia/Seoul",
+  "start": "2026-09-10",
+  "end": "2026-09-25",
+  "weekends": false,
+  "excludedDepartureWeekdays": [6],
+  "openDaysAhead": 360,
+  "prepareTime": "08:20:00",
+  "openTime": "09:00:00",
+  "leadMs": 2500,
+  "cabin": "프레스티지",
+  "bookingPort": 9232,
+  "observerPort": 9233,
+  "bookingStart": "user-arm",
+  "observer": {"gapMs": 1000, "maxInflight": 2, "maxStartDelayMs": 150, "uiReloadMs": 0, "confirmUiAfter": true},
+  "targets": [
+    {"runDate": "2026-09-14", "origin": "ICN", "destination": "CDG", "departureDate": "2027-09-09"},
+    {"runDate": "2026-09-25", "origin": "CDG", "destination": "ICN", "departureDate": "2027-09-20"}
+  ]
+}

@@ -12,11 +12,32 @@ def order_id_observed(data):
             and not data.get('error') and not data.get('errorCode'))
 
 
+def order_response_evidence(data):
+    """본문 원문 대신 허용 필드의 구조만 기록한다. 업무 수락을 임의로 판정하지 않는다."""
+    allowed={'orderId','order','orderInfo','reservation','reservationId','reservationInfo',
+             'reservationNumber','bookingReference','booking','pnr','recordLocator','pageTicket',
+             'data','result','response','success','status','code','error','errorCode','errors',
+             'message','payment','paymentInfo','paymentId','travellers','travelers','travellerList',
+             'travelerList','flightList','boundList','fare','fareInformation','totalAmount','currency'}
+    def structure(value,depth=0):
+        if depth>3:return {'type':'truncated'}
+        if isinstance(value,dict):
+            return {'type':'object','fields':{k:structure(v,depth+1) for k,v in value.items() if k in allowed},
+                    'omittedFieldCount':sum(k not in allowed for k in value)}
+        if isinstance(value,list):return {'type':'array','count':len(value),'items':[structure(v,depth+1) for v in value[:2]]}
+        return {'type':'null' if value is None else 'boolean' if isinstance(value,bool)
+                else 'number' if isinstance(value,(float,int)) else 'string'}
+    return {'acceptance':'unverified','orderIdObserved':order_id_observed(data),
+            'responseStructure':structure(data),'seatHoldVerified':False,
+            'interpretation':'응답 필드 관측만 기록. 필드 없음은 주문 실패, HTTP200은 업무 수락으로 해석하지 않음.'}
+
+
 class NetworkTrace:
     def __init__(self, page, folder, target):
         self.folder, self.target = folder, target.replace("-", "")
         self.rows = []
         self.order_created = False
+        self.order_evidence = {'acceptance':'unverified','reason':'승객 전송 응답 미관측','seatHoldVerified':False}
         page.on("requestfinished", self.finished)
         page.on("requestfailed", self.failed)
 
@@ -34,11 +55,13 @@ class NetworkTrace:
             response = request.response()
             row = {"path": path, "method": request.method, "status": response.status,
                    "timing": request.timing}
-            if path.endswith('/inputTravellers') and response.ok:
+            if path.endswith('/inputTravellers'):
                 data = response.json()
-                # Only the documented response field; never log order IDs.
-                self.order_created = order_id_observed(data)
+                self.order_evidence = {**order_response_evidence(data),'httpStatus':response.status}
+                # 과거 실행기 호환 필드다. 업무 수락·좌석 확보의 판정값으로 사용하지 않는다.
+                self.order_created = response.ok and order_id_observed(data)
                 row['orderCreated'] = self.order_created
+                row['orderEvidence'] = self.order_evidence
             if path.endswith("/awardAvailability") and response.ok:
                 data = response.json()
                 flights = []
@@ -58,6 +81,7 @@ class NetworkTrace:
             self.save()
         except Exception as e:
             self.rows.append({"path": path, "traceError": type(e).__name__})
+            self.save()
 
     def save(self):
         atomic_json(self.folder / "network.json", {"runId": run_id(), "rows": self.rows[-500:]})

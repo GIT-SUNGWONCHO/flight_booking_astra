@@ -51,6 +51,7 @@ MUST_CLEAR = {
     "fixPhase": 2,
     "fixClickAt": 1,
     "fixOpens": 9,
+    "navigation": [{"at": 1, "path": "/previous-run", "step": 9}],
 }
 
 
@@ -63,7 +64,7 @@ def check(ok: bool, label: str, detail: str = "") -> None:
 POISON = """() => {
   const S = window.KE_REC.state;
   /* 실제 1단계와 같은 모양: 고정 셀렉터가 아니라 그날 화면에서 날짜로 찾는다. */
-  S.steps = [{sel:'#dep-fare-3-4', text:'22 08월 22일 (일)', tag:'td', url:'/x',
+  S.steps = [{sel:'#dep-fare-3-4', text:'22 08월 22일 (일)', tag:'td', url:location.pathname,
               dynamicDate:true}];
   S.playing = false; S.playAfterReload = false; S.idx = 0;
   Object.assign(S, %s);
@@ -166,7 +167,7 @@ def main() -> int:
             pg.evaluate("""() => {
               const S = KE_REC.state;
               S.steps = [{sel:'#dep-fare-22', text:'22 08월 22일 (수)', tag:'div',
-                          url:'/x', dynamicDate:true}];
+                          url:location.pathname, dynamicDate:true}];
               S.expectDate = '08-18';      // 늦게 그려지고, 최신일도 아니다
               S.playing = false; S.playAfterReload = false;
               KE_REC.save();
@@ -192,7 +193,7 @@ def main() -> int:
             pg.evaluate("""() => {
               const S = KE_REC.state;
               S.steps = [{sel:'#dep-fare-20', text:'20 08월 20일 (수)', tag:'div',
-                          url:'/x', dynamicDate:true}];
+                          url:location.pathname, dynamicDate:true}];
               S.expectDate = '08-22';      // upto=20 이라 달력에 없다
               S.openRetryMs = 400;
               S.playing = false; S.playAfterReload = false;

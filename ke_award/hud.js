@@ -56,6 +56,7 @@
   function save() { try { localStorage.setItem(LS, JSON.stringify(S)); } catch (e) {} }
 
   var offsetMs = 0;        // 서버시각 - 로컬시각
+  var externalClock = null;
   var syncQuality = '미동기화';
   var timer = null;
 
@@ -65,6 +66,7 @@
   function nowSrv() { return Date.now() + offsetMs; }
 
   function fmtKst(ms) {
+    ms = Math.floor(ms);
     return new Intl.DateTimeFormat('ko-KR', {
       timeZone: 'Asia/Seoul', hour12: false,
       year: 'numeric', month: '2-digit', day: '2-digit',
@@ -166,6 +168,10 @@
       syncQuality = '개략 (오차 ~500ms)';
     } else {
       syncQuality = '동기화 실패 - 로컬시각 사용';
+    }
+    if (externalClock) {
+      offsetMs = externalClock.offsetMs;
+      syncQuality = externalClock.label;
     }
     if (log) toast('시각 동기화: ' + syncQuality + ' / offset ' + offsetMs + 'ms');
     save();
@@ -315,6 +321,8 @@
      * 달력 경로로 간다 - 오늘 실측만큼 걸릴 뿐, 놓치지는 않는다. */
     var plan = startPlan(R);
     if (!R.armForReload(plan.from, plan.fix)) return false;
+    S.lastFire = {localAt: Date.now(), serverAt: nowSrv(), reason: reason,
+      targetAt: targetMs(), leadMs: S.leadMs, startAt: S.startAt};
     /* 이후 흐름은 recorder 가 몬다. HUD 는 무장을 풀어 카운트다운을 멈춘다.
      *
      * 소리는 끄지 않는다. 예전에는 여기서 껐는데, 경쟁이 벌어지는 것은 발사 '뒤' 다.
@@ -447,7 +455,7 @@
         } else {
           cdEl.textContent = 'T-' + String(Math.floor(s / 3600)).padStart(2, '0') + ':' +
             String(Math.floor(s / 60) % 60).padStart(2, '0') + ':' +
-            String(s % 60).padStart(2, '0') + '.' + String(d % 1000).padStart(3, '0');
+            String(s % 60).padStart(2, '0') + '.' + String(Math.floor(d) % 1000).padStart(3, '0');
           cdEl.style.color = d < 10000 ? '#c00' : '#333';
         }
       } else {
@@ -683,7 +691,7 @@
       '#ke-hud input{width:100%;box-sizing:border-box;padding:3px 5px;border:1px solid #bbb;border-radius:3px;font:inherit}' +
       '#ke-hud button{cursor:pointer;border:0;border-radius:4px;color:#fff;padding:5px 8px;font:inherit;margin-top:6px}' +
       '#ke-clock{font-family:Consolas,monospace;font-size:11px;color:#0b4da2}' +
-      '#ke-cd{font-family:Consolas,monospace;font-size:19px;font-weight:700;text-align:center;margin:4px 0}' +
+      '#ke-cd{font-family:Consolas,monospace;font-size:19px;font-weight:700;text-align:center;margin:4px 0;white-space:nowrap;font-variant-numeric:tabular-nums}' +
       '#ke-status{font-size:11px;color:#444;min-height:15px;margin-top:4px}' +
       '#ke-toast{font-size:11px;min-height:15px}' +
       '#ke-hud .row{display:flex;gap:5px}#ke-hud .row>*{flex:1}' +
@@ -694,7 +702,7 @@
       '<div id="ke-clock">--</div><div id="ke-cd">--</div>' +
       '<label><b>발사 시각</b> - 매크로가 움직일 시각 (매일 09:00)</label>' +
       '<input id="ke-target" placeholder="09:00">' +
-      '<label>선발사(ms) <span style="color:#999">- 화면이 뜨는 시간. 달력 3400</span></label>' +
+      '<label>선발사(ms) <span style="color:#999">- 달력 기본 2500 · 09시 기준 08:59:57.500</span></label>' +
       '<input id="ke-lead" type="number">' +
       '<button id="ke-sync" style="background:#666;width:100%">시각 동기</button>' +
       '<hr style="border:0;border-top:1px solid #ddd;margin:8px 0">' +
@@ -959,6 +967,13 @@
   }, true);
 
   expose('KE_HUD', { sync: sync, fire: fire, state: S, mount: mount, save: save, schedule: schedule,
+    useMeasuredClock: function (ms, uncertaintyMs) {
+      if (!Number.isFinite(ms) || !Number.isFinite(uncertaintyMs) || uncertaintyMs < 0) return false;
+      externalClock = {offsetMs:ms,label:'NTP 측정 (왕복 기준 불확실성 ±'+Math.ceil(uncertaintyMs)+'ms)'};
+      offsetMs=ms;syncQuality=externalClock.label;
+      if(S.armed)schedule();
+      return true;
+    },
     render: renderRec, startPlan: function () { return startPlan(REC()); },
                      targetMs: targetMs,
                      rehearse: rehearse,

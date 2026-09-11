@@ -113,6 +113,7 @@ def main() -> int:
     ap.add_argument('--no-reload', action='store_true')
     ap.add_argument('--prepare-date', default='')
     ap.add_argument('--refresh-date', default='')
+    ap.add_argument('--park-date', default='')
     ap.add_argument("--max-seconds", type=float, default=90)
     ap.add_argument("--partial-dry", action="store_true", help="주문 직전까지만 부분 점검; 전체 리허설 통과로 간주하지 않음")
     ap.add_argument("--no-watch", action="store_true", help="계측용 계정 없이 매크로 dry와 수동 네트워크 기록만 시험")
@@ -144,7 +145,7 @@ def main() -> int:
                      + ([] if a.keep_browsers else ["-Restart"])
                      + (["-Port", "9232"] if a.no_watch else []))
     if boot.returncode != 0:
-        log("브라우저 준비 실패: " + boot.stderr[-500:])
+        log("브라우저 준비 실패: " + (boot.stdout + boot.stderr)[-2000:])
         return 1
 
     # --- 2) 9시에 도는 것과 같은 진입점 ---
@@ -164,6 +165,7 @@ def main() -> int:
     if a.no_reload: cmd.append('--no-reload')
     if a.prepare_date: cmd += ['--prepare-date', a.prepare_date]
     if a.refresh_date: cmd += ['--refresh-date', a.refresh_date]
+    if a.park_date: cmd += ['--park-date', a.park_date]
     r = subprocess.run(cmd, capture_output=True, text=True,
                        timeout=(a.minutes + 8) * 60)
     print(r.stdout[-3000:])

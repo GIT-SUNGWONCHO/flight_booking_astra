@@ -32,6 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ke_setup import nearest_future, run_setup
 from runtime import output_dir, run_id, atomic_json, resolve_time, heartbeat, measure_clock
+from browser_identity import mark_context
 
 ROOT = Path(__file__).resolve().parent.parent
 USER = ROOT / "userscript" / "ke-award-macro.user.js"
@@ -100,8 +101,9 @@ def main() -> int:
     ap.add_argument("--fast-gap", type=float, default=1.0)
     ap.add_argument("--fast-window", type=float, default=20.0)
     ap.add_argument("--reload-gap", type=float, default=1.5, help="D 를 기다리며 새로고침하는 간격")
-    ap.add_argument("--port", type=int, default=9233)
+    ap.add_argument("--port", type=int, default=9233, choices=[9233])
     ap.add_argument("--setup-at", default="")
+    ap.add_argument('--use-prepared', action='store_true', help='준비 완료된 달력을 이용하는 읽기 전용 부분 시험')
     a = ap.parse_args()
 
     tgt = nearest_future(a.date)
@@ -159,7 +161,8 @@ def main() -> int:
     log(f"달력 준비 ({a.origin or 'SEL'} -> {a.route}, 목표 {tgt})")
     # 한 번 실패했다고 하루를 버리지 않는다. 발사 90초 전까지 다시 해본다.
     # (09-04: 새 크롬에서 1차 실패하고 그대로 죽어 09:00 을 통째로 놓쳤다)
-    st = run_setup(cmd, open_at - timedelta(seconds=90), log)
+    st = {'ok': True} if a.use_prepared else run_setup(cmd, open_at - timedelta(seconds=90), log)
+    report['preparedScreenReused'] = a.use_prepared
     if not st.get("ok"):
         report["why"] = f"조회 화면 준비 실패: {st.get('why')}"
         log(report["why"]); save_report(); return 2
@@ -169,12 +172,15 @@ def main() -> int:
     with sync_playwright() as pw:
         b = pw.chromium.connect_over_cdp(f"http://localhost:{a.port}")
         ctx = b.contexts[0]
+        mark_context(ctx, a.port)
         js = USER.read_text(encoding="utf-8")
-        ctx.add_init_script(js)
+        ctx.add_init_script("if (location.hostname === 'www.koreanair.com') {\n" + js + "\n}")
         pages = [p for p in ctx.pages if "koreanair" in p.url]
         if not pages:
             report["why"] = "대한항공 탭이 없다"; log(report["why"]); save_report(); return 3
         page = pages[-1]
+        if '/booking/calendar-fare-bonus' not in page.url:
+            report['why'] = '계측 시작 화면이 달력이 아님'; save_report(); return 3
         try: page.bring_to_front()
         except Exception: pass
         page.evaluate(js)
@@ -279,7 +285,8 @@ def main() -> int:
                 seen_at = d["lastAt"]
                 pr, ey = d.get("pr") or {}, d.get("ey") or {}
                 now = datetime.now(KST)
-                secs = round((now - open_at).total_seconds() + offset, 2)
+                response_time = datetime.fromtimestamp(seen_at / 1000, KST)
+                secs = round((response_time - open_at).total_seconds() + offset, 3)
                 rows.append({"at": now.isoformat(), "sinceOpen": secs,
                              "responseAt": seen_at,
                              "prSeats": pr.get("seats"), "prSoldout": pr.get("soldout"),
@@ -291,8 +298,8 @@ def main() -> int:
                     s = pr.get("seats") or 0
                     best = s if best is None else max(best, s)
                     mark = "  ★있음"
-                elif pr.get("soldout") and best is not None and not gone_at:
-                    gone_at = now
+                elif pr.get("soldout") and best is not None and best > 0 and not gone_at:
+                    gone_at = response_time
                     mark = "  <- 방금 0 이 됨"
                 log(f"오픈+{secs:6.2f}s  프레스티지 "
                     f"{'매진' if pr.get('soldout') else str(pr.get('seats')) + '석'}"
@@ -314,7 +321,7 @@ def main() -> int:
                       firstSampleSinceOpen=rows[0]["sinceOpen"] if rows else None,
                       initiallyUnavailable=bool(rows and rows[0].get("prSoldout")),
                       goneAt=gone_at.isoformat() if gone_at else None,
-                      goneSinceOpen=round((gone_at - open_at).total_seconds(), 2) if gone_at else None)
+                      goneSinceOpen=round((gone_at - open_at).total_seconds() + offset, 3) if gone_at else None)
         save_report()
         ever = any(r.get("prListed") for r in rows)
         note = (f"프레스티지 최대 {best}석" if best else

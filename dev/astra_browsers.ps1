@@ -1,4 +1,4 @@
-# Only processes with both this worktree profile and its assigned port are owned.
+# 포트 소유권을 확인하고 이 worktree의 정확한 프로필 경로만 종료한다.
 param([switch]$Restart, [int]$Port = 0)
 $ErrorActionPreference = 'Stop'
 $chrome = 'C:\Program Files\Google\Chrome\Application\chrome.exe'
@@ -19,14 +19,33 @@ foreach ($t in $targets) {
   $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $t.Port -ErrorAction SilentlyContinue)
   if ($listeners.Count -and -not $owned.Count) { throw "Port $($t.Port) belongs to an unrecognized process" }
   if ($Restart) {
-    foreach ($p in $owned) {
+    if ($listeners.Count -and $owned.Count) {
+      & (Join-Path $root '.venv/Scripts/python.exe') (Join-Path $PSScriptRoot 'close_astra_browser.py') --port $t.Port
+      Start-Sleep -Seconds 2
+    }
+    # 포트가 없는 GPU/utility 자식도 프로필 잠금을 유지할 수 있다.
+    $profileOwned = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -match $profilePattern })
+    foreach ($p in $profileOwned) {
+      # 정상 종료 후 사라진 PID는 다시 종료하지 않는다.
+      $remainingProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$($p.ProcessId)"
+      if (-not $remainingProcess -or $remainingProcess.CommandLine -notmatch $profilePattern) { continue }
       Write-Output "Restarting owned Chrome PID $($p.ProcessId), port $($t.Port), profile $profile"
-      Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop
+      # 확인 직후 자식 프로세스가 정상 종료될 수 있다. 최종 성공 여부는
+      # 아래 포트 해제 검사로 판정한다.
+      Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
       Wait-Process -Id $p.ProcessId -Timeout 10 -ErrorAction SilentlyContinue
     }
-    Start-Sleep -Seconds 2
-    $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $t.Port -ErrorAction SilentlyContinue)
+    # 프로세스 종료와 포트 해제 시점은 다를 수 있다. 2초 뒤 한 번만
+    # 검사하면 실제로 종료되는 중인 브라우저를 실패로 판정한다.
+    $closeDeadline = [DateTimeOffset]::Now.AddSeconds(30)
+    do {
+      $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $t.Port -ErrorAction SilentlyContinue)
+      $profileRemaining = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -match $profilePattern })
+      if (-not $listeners.Count -and -not $profileRemaining.Count) { break }
+      Start-Sleep -Milliseconds 500
+    } while ([DateTimeOffset]::Now -lt $closeDeadline)
     if ($listeners.Count) { throw "Port $($t.Port) did not close" }
+    if ($profileRemaining.Count) { throw "Profile $profile still has live Chrome processes" }
   }
   if (-not $listeners.Count) {
     Start-Process -FilePath $chrome -WindowStyle Hidden -ArgumentList @(
@@ -47,6 +66,9 @@ foreach ($t in $targets) {
   if (-not $ready) { throw "Chrome endpoint $($t.Port) did not become ready" }
   & (Join-Path $root '.venv/Scripts/python.exe') (Join-Path $PSScriptRoot 'browser_identity.py') --port $t.Port
   if ($LASTEXITCODE -ne 0) { Write-Warning "Chrome is ready, but its cosmetic profile label needs retry on $($t.Port)" }
+  # 이름표 주입을 유지한다. Chrome 종료 시 함께 종료하고, 포트별 mutex로 중복 실행을 막는다.
+  Start-Process -FilePath (Join-Path $root '.venv/Scripts/python.exe') -WindowStyle Hidden -ArgumentList @(
+    ('"' + (Join-Path $PSScriptRoot 'browser_identity.py') + '"'), '--port', [string]$t.Port, '--keep') | Out-Null
   Write-Output "Astra Chrome port $($t.Port) ready"
 }
 $global:LASTEXITCODE = 0

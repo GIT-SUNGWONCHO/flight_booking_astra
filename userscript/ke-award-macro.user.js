@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         대한항공 마일리지 예매 보조 (KE Award Macro)
 // @namespace    local.ke.award
-// @version      1.80.0-dirty
+// @version      1.82.0-dirty
 // @description  예매 단계 녹화/재생 + 오픈시각 정시 발사 + 안내사항 모달 즉시 통과
 // @author       local
 // @match        *://*.koreanair.com/*
@@ -659,11 +659,26 @@ try {
     var want = +md.slice(3), items;
     try { items = document.querySelectorAll(STRIP_SEL); } catch (e) { return null; }
     if (!items.length) return { el: null, selectable: false, why: '날짜 띠가 화면에 없습니다' };
-    if (crossMonth && (dates.length !== items.length || dates.filter(function(d){return d===md;}).length !== 1)) {
-      return {el:null,selectable:false,why:'날짜 띠와 최신 서버 날짜의 대응이 불명확합니다'};
+    var targetIndex = -1;
+    if (crossMonth) {
+      // 날짜 선택 후 서버 목록은 재정렬돼도 DOM 창 범위는 그대로 남을 수 있다.
+      // 두 목록의 절대 index 대신 현재 선택일과 목표일 사이의 간격을 대조한다.
+      var days = Array.prototype.map.call(items, function(it) {
+        var m = label(it).match(/출발일\s*(\d{1,2})/);
+        return m ? +m[1] : null;
+      });
+      var currentDay = +nowMd.slice(3), currentIndex = days.indexOf(currentDay);
+      targetIndex = days.indexOf(want);
+      if (dates.filter(function(d){return d===md;}).length !== 1 ||
+          currentIndex < 0 || targetIndex < 0 ||
+          days.filter(function(d){return d===want;}).length !== 1 ||
+          days.filter(function(d){return d===currentDay;}).length !== 1 ||
+          targetIndex-currentIndex !== dates.indexOf(md)-dates.indexOf(nowMd)) {
+        return {el:null,selectable:false,why:'날짜 띠와 최신 서버 날짜의 대응이 불명확합니다'};
+      }
     }
     for (var i = 0; i < items.length; i++) {
-      if (crossMonth && dates[i] !== md) continue;
+      if (crossMonth && i !== targetIndex) continue;
       var it = items[i];
       if (!visible(it)) continue;
       var t = label(it);
@@ -803,7 +818,7 @@ try {
 (function () {
   var W = window;
   try { if (typeof unsafeWindow !== 'undefined' && unsafeWindow) W = unsafeWindow; } catch (e) {}
-  var B = { version: '1.80.0-dirty', hash: '305d571-dirty' };
+  var B = { version: '1.82.0-dirty', hash: '65c0a84-dirty' };
   try { W.KE_BUILD = B; } catch (e) {}
   if (W !== window) { try { window.KE_BUILD = B; } catch (e) {} }
 })();
@@ -837,6 +852,33 @@ try {
   var CAP = 200000;        // 한 건당 글자 수 상한 (localStorage 가 아니라 메모리다)
   var hits = [];
   var stamp = 0;         // 기록이 늘 때마다 증가. 화면 갱신 여부를 값싸게 판단한다
+  var availability = null, availabilitySeq = 0;
+
+  function beginAvailability(url) {
+    if (!/\/awardAvailability(?:[.?/#]|$)/i.test(String(url))) return 0;
+    var seq = ++availabilitySeq;
+    availability = {seq: seq, state: 'pending', startedAt: Date.now()};
+    return seq;
+  }
+  function endAvailability(seq, status, body) {
+    // 오래 걸린 이전 요청이 새 조회 상태를 덮지 못하게 한다.
+    if (!seq || seq !== availabilitySeq) return;
+    var state = status === 200 ? 'valid' : (status ? 'http-error' : 'network-error');
+    var code = null;
+    if (state === 'valid') {
+      try {
+        var d = JSON.parse(body);
+        if (d && (d.error || d.errors || d.errorCode ||
+            (d.code != null && !/^(0|0000|200|SUCCESS)$/i.test(String(d.code))))) {
+          state = 'application-error';
+          var rawCode = String(d.code || d.errorCode || '');
+          if (/^[A-Z0-9_.-]{1,32}$/i.test(rawCode)) code = rawCode;
+        } else if (!d || !Array.isArray(d.upsellBoundAvailList)) state = 'schema-error';
+      } catch (e) { state = 'schema-error'; }
+    }
+    availability = {seq: seq, state: state, status: status, code: code,
+                    startedAt: availability.startedAt, completedAt: Date.now()};
+  }
 
   /* 좌석/운임 조회로 보이는 응답만 남긴다. 전부 남기면 로그인 토큰 같은 것까지
    * 딸려 들어와 내보내기가 위험해진다. */
@@ -870,6 +912,7 @@ try {
     if (typeof of === 'function' && !of.__keProbe) {
       var nf = function (input, init) {
         var url = (input && input.url) || input;
+        var aq = beginAvailability(url);
         var rq = null;
         try {
           var h = {};
@@ -885,12 +928,13 @@ try {
         return of.apply(this, arguments).then(function (res) {
           try {
             if (WANTED.test(String(url))) {
-              res.clone().text().then(function (t) { note('fetch', url, res.status, t, rq); },
-                                      function () {});
+              res.clone().text().then(function (t) {
+                endAvailability(aq, res.status, t); note('fetch', url, res.status, t, rq);
+              }, function () { endAvailability(aq, 0, ''); });
             }
           } catch (e) {}
           return res;
-        });
+        }, function (error) { endAvailability(aq, 0, ''); throw error; });
       };
       nf.__keProbe = true;
       W.fetch = nf;
@@ -914,14 +958,20 @@ try {
       };
       XP.send = function (body) {
         var self = this;
+        var aq = beginAvailability(self.__keUrl);
         try { self.__keBody = (typeof body === 'string') ? body : null; } catch (e) {}
         try {
           self.addEventListener('load', function () {
             var t = '';
             try { t = (self.responseType === '' || self.responseType === 'text') ? self.responseText : ''; } catch (e) {}
+            if (self.responseType === 'json') t = JSON.stringify(self.response);
+            endAvailability(aq, self.status, t);
             note('xhr', self.__keUrl, self.status, t,
                  { method: self.__keMethod || 'GET', body: self.__keBody || null,
                    headers: self.__keHeaders || {} });
+          });
+          ['error', 'abort', 'timeout'].forEach(function (event) {
+            self.addEventListener(event, function () { endAvailability(aq, 0, ''); }, {once: true});
           });
         } catch (e) {}
         return os.apply(this, arguments);
@@ -1182,6 +1232,7 @@ try {
     hits: function () { return hits; },
     stamp: function () { return stamp; },
     keCabin: keCabin,
+    availabilityState: function () { return availability; },
     reAsk: reAsk,
     /* 좌석 조회 응답이 한 번이라도 왔는가.
      *
@@ -1354,6 +1405,7 @@ try {
     openWaitSince: 0,     // 목표 날짜가 열리기를 기다리기 시작한 시각(페이지 이동을 넘어 유지)
     soldOutSince: 0,      // 고른 등급이 '매진 확정' 으로 처음 보인 시각(페이지 이동을 넘어 유지)
     openReloads: 0,       // 날짜/좌석을 기다리며 새로고침한 횟수 (발사가 일렀는지 계측)
+    navigation: [],       // 경로·단계만 저장. 쿼리/계정/요청 본문은 기록하지 않음
     openRetryMs: 1200,    // 목표 날짜가 없을 때 새로고침 간격 (서버 부담 하한)
     openWaitMaxMs: 180000,// 이만큼 기다려도 안 열리면 사람을 부른다
     /* 좌석이 매진(soldout:true)으로 확정돼도 몇 백ms 늦게 풀릴 수 있어 이만큼은
@@ -1824,6 +1876,8 @@ try {
     S.blocks = [];        // 이번 실행에서 무엇이 버튼을 덮었나 (가림 진단)
     S.endedAt = 0;
     S.problem = false;
+    S.message = '';
+    S.navigation = [];
     S.fixSince = 0; S.fixPhase = 0; S.fixClickAt = 0; S.fixOpens = 0;
     S.times = [];
     S.byCause = {};
@@ -1861,9 +1915,23 @@ try {
   function pause(why) {
     S.playing = false;
     S.playAfterReload = false;
+    if (!S.endedAt) S.endedAt = Date.now();
     var took = elapsed();
+    S.message = '재생 중지' + (why ? ' - ' + why : '') + (took ? '  [총 ' + secs(took) + ']' : '');
     save();
-    log('재생 중지' + (why ? ' - ' + why : '') + (took ? '  [총 ' + secs(took) + ']' : ''));
+    log(S.message);
+  }
+
+  // 재조회를 예약한 문서는 더 이상 클릭/종료 판정을 하지 않는다.
+  // 새 문서만 같은 단계에서 이어받으며 누적 개방 대기시간은 유지한다.
+  function reloadForOpen(message) {
+    S.playFrom = S.idx;
+    S.playAfterReload = true;
+    S.playing = false;
+    S.message = message;
+    save();
+    log(message);
+    setTimeout(function () { location.reload(); }, 0);
   }
 
   /* "새로고침한 다음 처음부터 재생" 예약. 지금 당장은 재생하지 않는다.
@@ -2011,6 +2079,41 @@ try {
 
     var step = S.steps[S.idx];
     if (!step) { pause('전체 단계 완료'); return; }
+
+    var nav = S.navigation || (S.navigation = []);
+    if (!nav.length || nav[nav.length - 1].path !== location.pathname) {
+      nav.push({at: now, path: location.pathname, step: S.idx + 1});
+      if (nav.length > 20) nav.shift();
+      save();
+    }
+    // 첫 단계에도 경로 검증이 필요하다. 세션 이탈 화면에서 날짜를 찾거나
+    // 임의 검색 버튼을 누르지 않고, 잠깐의 라우팅 전환만 기다린다.
+    if (step.dynamicDate && step.url && hereUrl().indexOf(step.url) < 0) {
+      beganWaiting(now);
+      phase('달력 경로 이탈', now);
+      if (tooLong(Math.min(S.stepTimeoutMs, 2000))) {
+        finish('달력 화면 이탈: 목표 날짜 선택 전 ' + location.pathname
+               + ' 로 이동했습니다 - 로그인·사이트 안내·노선 상태를 확인하세요', true);
+      }
+      return;
+    }
+    // 성공 응답이 없는 상태를 매진으로 설명하거나 이전 결과를 클릭하지 않는다.
+    if (step.dynamicCabin && U.onDeparture()) {
+      var np = W.KE_PROBE || window.KE_PROBE;
+      var net = np && np.availabilityState ? np.availabilityState() : null;
+      if (net && net.state !== 'valid') {
+        beganWaiting(now);
+        phase('항공편 조회 응답 대기', now);
+        if (net.state !== 'pending') {
+          finish('항공편 조회 실패 (' + net.state + (net.status ? ', HTTP ' + net.status : '')
+                 + (net.code ? ', 코드 ' + net.code : '')
+                 + ') - 좌석 상태 판정 불가. 정상 조회부터 다시 확인하세요', true);
+        } else if (tooLong(S.stepTimeoutMs)) {
+          finish('항공편 조회 응답 대기 시간 초과 - 좌석 상태 판정 불가', true);
+        }
+        return;
+      }
+    }
 
     /* 페이지가 넘어가는 단계 바로 다음은, 새 화면이 뜬 뒤에 눌러야 한다.
      *
@@ -2341,9 +2444,7 @@ try {
       lastOpenReloadAt = now;
       S.openReloads = (S.openReloads || 0) + 1;
       S.idx = 0;
-      save();
-      log('목표 날짜(' + S.expectDate + ')가 아직 달력에 없습니다 - 새로고침하고 다시 봅니다');
-      setTimeout(function () { location.reload(); }, 0);
+      reloadForOpen('목표 날짜(' + S.expectDate + ')가 아직 달력에 없습니다 - 새로고침하고 다시 봅니다');
       return;
     }
 
@@ -2425,10 +2526,8 @@ try {
         if (now - lastOpenReloadAt < S.openRetryMs) return;
         lastOpenReloadAt = now;
         S.openReloads = (S.openReloads || 0) + 1;
-        save();
-        log('조회 결과에 "' + S.cabin + '" 이(가) 없습니다 - 새로고침하고 다시 봅니다 ('
+        reloadForOpen('조회 결과에 "' + S.cabin + '" 이(가) 없습니다 - 새로고침하고 다시 봅니다 ('
             + Math.round((now - S.openWaitSince) / 1000) + '초째)');
-        setTimeout(function () { location.reload(); }, 0);
         return;
       }
 
@@ -2901,6 +3000,7 @@ try {
   function save() { try { localStorage.setItem(LS, JSON.stringify(S)); } catch (e) {} }
 
   var offsetMs = 0;        // 서버시각 - 로컬시각
+  var externalClock = null;
   var syncQuality = '미동기화';
   var timer = null;
 
@@ -2910,6 +3010,7 @@ try {
   function nowSrv() { return Date.now() + offsetMs; }
 
   function fmtKst(ms) {
+    ms = Math.floor(ms);
     return new Intl.DateTimeFormat('ko-KR', {
       timeZone: 'Asia/Seoul', hour12: false,
       year: 'numeric', month: '2-digit', day: '2-digit',
@@ -3011,6 +3112,10 @@ try {
       syncQuality = '개략 (오차 ~500ms)';
     } else {
       syncQuality = '동기화 실패 - 로컬시각 사용';
+    }
+    if (externalClock) {
+      offsetMs = externalClock.offsetMs;
+      syncQuality = externalClock.label;
     }
     if (log) toast('시각 동기화: ' + syncQuality + ' / offset ' + offsetMs + 'ms');
     save();
@@ -3160,6 +3265,8 @@ try {
      * 달력 경로로 간다 - 오늘 실측만큼 걸릴 뿐, 놓치지는 않는다. */
     var plan = startPlan(R);
     if (!R.armForReload(plan.from, plan.fix)) return false;
+    S.lastFire = {localAt: Date.now(), serverAt: nowSrv(), reason: reason,
+      targetAt: targetMs(), leadMs: S.leadMs, startAt: S.startAt};
     /* 이후 흐름은 recorder 가 몬다. HUD 는 무장을 풀어 카운트다운을 멈춘다.
      *
      * 소리는 끄지 않는다. 예전에는 여기서 껐는데, 경쟁이 벌어지는 것은 발사 '뒤' 다.
@@ -3292,7 +3399,7 @@ try {
         } else {
           cdEl.textContent = 'T-' + String(Math.floor(s / 3600)).padStart(2, '0') + ':' +
             String(Math.floor(s / 60) % 60).padStart(2, '0') + ':' +
-            String(s % 60).padStart(2, '0') + '.' + String(d % 1000).padStart(3, '0');
+            String(s % 60).padStart(2, '0') + '.' + String(Math.floor(d) % 1000).padStart(3, '0');
           cdEl.style.color = d < 10000 ? '#c00' : '#333';
         }
       } else {
@@ -3528,7 +3635,7 @@ try {
       '#ke-hud input{width:100%;box-sizing:border-box;padding:3px 5px;border:1px solid #bbb;border-radius:3px;font:inherit}' +
       '#ke-hud button{cursor:pointer;border:0;border-radius:4px;color:#fff;padding:5px 8px;font:inherit;margin-top:6px}' +
       '#ke-clock{font-family:Consolas,monospace;font-size:11px;color:#0b4da2}' +
-      '#ke-cd{font-family:Consolas,monospace;font-size:19px;font-weight:700;text-align:center;margin:4px 0}' +
+      '#ke-cd{font-family:Consolas,monospace;font-size:19px;font-weight:700;text-align:center;margin:4px 0;white-space:nowrap;font-variant-numeric:tabular-nums}' +
       '#ke-status{font-size:11px;color:#444;min-height:15px;margin-top:4px}' +
       '#ke-toast{font-size:11px;min-height:15px}' +
       '#ke-hud .row{display:flex;gap:5px}#ke-hud .row>*{flex:1}' +
@@ -3539,7 +3646,7 @@ try {
       '<div id="ke-clock">--</div><div id="ke-cd">--</div>' +
       '<label><b>발사 시각</b> - 매크로가 움직일 시각 (매일 09:00)</label>' +
       '<input id="ke-target" placeholder="09:00">' +
-      '<label>선발사(ms) <span style="color:#999">- 화면이 뜨는 시간. 달력 3400</span></label>' +
+      '<label>선발사(ms) <span style="color:#999">- 달력 기본 2500 · 09시 기준 08:59:57.500</span></label>' +
       '<input id="ke-lead" type="number">' +
       '<button id="ke-sync" style="background:#666;width:100%">시각 동기</button>' +
       '<hr style="border:0;border-top:1px solid #ddd;margin:8px 0">' +
@@ -3804,6 +3911,13 @@ try {
   }, true);
 
   expose('KE_HUD', { sync: sync, fire: fire, state: S, mount: mount, save: save, schedule: schedule,
+    useMeasuredClock: function (ms, uncertaintyMs) {
+      if (!Number.isFinite(ms) || !Number.isFinite(uncertaintyMs) || uncertaintyMs < 0) return false;
+      externalClock = {offsetMs:ms,label:'NTP 측정 (왕복 기준 불확실성 ±'+Math.ceil(uncertaintyMs)+'ms)'};
+      offsetMs=ms;syncQuality=externalClock.label;
+      if(S.armed)schedule();
+      return true;
+    },
     render: renderRec, startPlan: function () { return startPlan(REC()); },
                      targetMs: targetMs,
                      rehearse: rehearse,

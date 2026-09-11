@@ -1,27 +1,10 @@
-# Explicit single-date release candidate. No scheduler is installed by this file.
-# Opens the payment window; never approves payment inside it.
-param([switch]$PartialDry, [switch]$CalendarFallback)
+# 공통 일정의 당일 준비만 실행한다. 09시 예매 무장·발사는 사용자의 HUD 대기 시작으로 한다.
+param([string]$Day = (Get-Date -Format 'yyyy-MM-dd'), [switch]$Preview, [switch]$Cold)
 $ErrorActionPreference = 'Stop'
-$root = Split-Path -Parent $PSScriptRoot
-$fire = [DateTimeOffset]::Parse('2026-09-09T09:00:00+09:00')
-$now = [DateTimeOffset]::Now
-if ($now -lt $fire.AddMinutes(-30) -or $now -ge $fire.AddMinutes(-15)) {
-  throw 'This candidate must start on 2026-09-09 between 08:30 and 08:45 KST (recommended 08:35). It never rolls over to another day.'
-}
-& (Join-Path $PSScriptRoot 'astra_browsers.ps1') -Port 9232 -Restart
-if ($LASTEXITCODE -ne 0) { throw 'Astra Chrome launch failed' }
-$python = Join-Path $root '.venv/Scripts/python.exe'
+$astraRoot = Split-Path -Parent $PSScriptRoot
 $env:PYTHONIOENCODING = 'utf-8'
-$env:PYTHONUNBUFFERED = '1'
-$mode = if ($PartialDry) { 'dry' } else { 'payment-window' }
-$speedArgs = @()
-if (-not $CalendarFallback) {
-  # 08-30 -> 09-01 refreshes the strip containing the newly opening 09-04.
-  # Tested through payment-window on already-open economy dates, not 09:00 Prestige.
-  $speedArgs = @('--start', 'departure', '--prepare-krw', '--no-reload',
-                 '--prepare-date', '08-30', '--refresh-date', '09-01')
-}
-& $python (Join-Path $PSScriptRoot 'daily.py') --at $fire.ToString('o') `
-  --from FCO --route ICN --date 09-04 --cabin '프레스티지' --no-watch `
-  --ready-by 08:50 --mode $mode @speedArgs
+$astraArgs = @('--day', $Day)
+if ($Preview) { $astraArgs += '--preview' }
+if ($Cold) { $astraArgs += '--cold' }
+& (Join-Path $astraRoot '.venv/Scripts/python.exe') (Join-Path $PSScriptRoot 'prepare_day.py') @astraArgs
 exit $LASTEXITCODE

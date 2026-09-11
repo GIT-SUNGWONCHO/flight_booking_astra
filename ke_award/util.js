@@ -641,11 +641,26 @@
     var want = +md.slice(3), items;
     try { items = document.querySelectorAll(STRIP_SEL); } catch (e) { return null; }
     if (!items.length) return { el: null, selectable: false, why: '날짜 띠가 화면에 없습니다' };
-    if (crossMonth && (dates.length !== items.length || dates.filter(function(d){return d===md;}).length !== 1)) {
-      return {el:null,selectable:false,why:'날짜 띠와 최신 서버 날짜의 대응이 불명확합니다'};
+    var targetIndex = -1;
+    if (crossMonth) {
+      // 날짜 선택 후 서버 목록은 재정렬돼도 DOM 창 범위는 그대로 남을 수 있다.
+      // 두 목록의 절대 index 대신 현재 선택일과 목표일 사이의 간격을 대조한다.
+      var days = Array.prototype.map.call(items, function(it) {
+        var m = label(it).match(/출발일\s*(\d{1,2})/);
+        return m ? +m[1] : null;
+      });
+      var currentDay = +nowMd.slice(3), currentIndex = days.indexOf(currentDay);
+      targetIndex = days.indexOf(want);
+      if (dates.filter(function(d){return d===md;}).length !== 1 ||
+          currentIndex < 0 || targetIndex < 0 ||
+          days.filter(function(d){return d===want;}).length !== 1 ||
+          days.filter(function(d){return d===currentDay;}).length !== 1 ||
+          targetIndex-currentIndex !== dates.indexOf(md)-dates.indexOf(nowMd)) {
+        return {el:null,selectable:false,why:'날짜 띠와 최신 서버 날짜의 대응이 불명확합니다'};
+      }
     }
     for (var i = 0; i < items.length; i++) {
-      if (crossMonth && dates[i] !== md) continue;
+      if (crossMonth && i !== targetIndex) continue;
       var it = items[i];
       if (!visible(it)) continue;
       var t = label(it);

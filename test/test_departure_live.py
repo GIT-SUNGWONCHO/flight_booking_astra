@@ -43,7 +43,13 @@ class DepartureLiveTest(unittest.TestCase):
             }''')
             self.assertTrue(page.evaluate('!!KE_UTIL.findStripDate("09-01").el'))
             self.assertFalse(page.evaluate('!!KE_UTIL.findStripDate("10-01").el'))
-            page.evaluate('document.querySelector("#flexible-date li").remove()')
+            # 서버 목록은 08-27..09-02지만 화면은 08-29..09-04로 유지되는 실제 사례.
+            page.evaluate('''() => {
+              const dates=['08-29','08-30','08-31','09-01','09-02','09-03','09-04'];
+              document.querySelector('#flexible-date').innerHTML=dates.map(d=>'<li class="flexible-date__item"><button class="-active">출발일 '+d.slice(3)+' 선택 가능</button></li>').join('');
+            }''')
+            self.assertTrue(page.evaluate('!!KE_UTIL.findStripDate("09-01").el'))
+            page.evaluate('document.querySelectorAll("#flexible-date li")[2].remove()')
             self.assertFalse(page.evaluate('!!KE_UTIL.findStripDate("09-01").el'))
             browser.close()
 

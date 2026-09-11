@@ -104,6 +104,7 @@ def main() -> int:
     ap.add_argument("--no-reload", action="store_true", help="다른 날짜의 조회 화면에서 날짜 띠만 변경: 명시적 실험 옵션")
     ap.add_argument("--prepare-date", default="", help="미리 서 있을 날짜 MM-DD (실제 목표와 별도)")
     ap.add_argument('--refresh-date', default='', help='발사 후 먼저 조회할 열린 날짜: 신규 목표의 날짜 띠를 갱신')
+    ap.add_argument('--park-date', default='', help='준비한 날짜 목록을 유지하며 발사 전에 선택해 둘 열린 날짜')
     ap.add_argument("--lead", type=int, default=2500,
                     help="선발사(ms). 오픈시각보다 이만큼 일찍 새로고침해 조회가 09:00 직후 도착하게 한다")
     a = ap.parse_args()
@@ -120,6 +121,8 @@ def main() -> int:
         ap.error('--no-reload requires --lead 0; do not query the target before opening')
     if a.refresh_date and (not a.no_reload or a.refresh_date == a.date):
         ap.error('--refresh-date requires --no-reload and must differ from target')
+    if a.park_date and (not a.no_reload or not a.refresh_date or a.park_date == a.refresh_date):
+        ap.error('--park-date requires a different --refresh-date and --no-reload')
     if not a.dry and a.mode != "ui":
         ap.error("혼합 모드는 실사이트 비교 검증 전까지 dry 전용입니다")
 
@@ -195,6 +198,16 @@ def main() -> int:
                 log('통화 KRW 사전 준비 완료')
             except Exception as e:
                 return finish(False, '통화 사전 준비 실패: ' + type(e).__name__, 2)
+
+        if a.park_date:
+            from departure_live import refresh_departure
+            remaining = int((fire_at.timestamp() - offset - time.time() - 90) * 1000)
+            if remaining <= 0:
+                return finish(False, '대기 날짜 준비 마감 초과', 2)
+            report['parkingPreparation'] = refresh_departure(page, a.park_date, min(8000, remaining))
+            if not report['parkingPreparation'].get('ok'):
+                return finish(False, '대기 날짜 준비 실패', 2)
+            log('날짜 목록 유지: 발사 전 대기 날짜 ' + a.park_date)
 
         page.evaluate("""({cabin, date, dry, hold, paymentWindow, start}) => {
           const R = window.KE_REC, H = window.KE_HUD;
