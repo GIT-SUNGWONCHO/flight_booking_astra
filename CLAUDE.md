@@ -10,6 +10,7 @@
 2. [NOW](NOW.md): 현재 상태와 다음 과제
 3. [README](README.md): 도구 명세와 운영 절차
 4. [FACTS](FACTS.md): 확인된 근거와 한계
+5. **[API 개발 원본 §3~§6](api_booking/README.md#process)**: 전체 프로세스·D1~D5 개발·실전 진입 조건. 첫 작업은 [§4 D1](api_booking/README.md#development), 붙여 넣을 프롬프트는 [§8](api_booking/README.md#claude-prompt).
 
 새 계정·새 세션의 상태 확인·시작 문구는 [README의 인계 절차](README.md#new-session)를 따른다.
 

@@ -1,0 +1,27 @@
+{
+  "NOW.md": {
+    "sha256_before": "71bc66c0e425618f72cf8350f9c55ebac4c6c42ca0348f5c3ef6c37e823912a9",
+    "lines_before": 39,
+    "archive": "docs/archive/2026-09-13/before-NOW.md"
+  },
+  "README.md": {
+    "sha256_before": "a7d9d4cec9ff2188584150323e7569a16c798ba72c416096cabec5f1da45bf57",
+    "lines_before": 456,
+    "archive": "docs/archive/2026-09-13/before-README.md"
+  },
+  "FACTS.md": {
+    "sha256_before": "b6247d30e65967e35a0d0901b597d49623186722a8f94453d46b73008e1a3e0c",
+    "lines_before": 137,
+    "archive": "docs/archive/2026-09-13/before-FACTS.md"
+  },
+  "AGENTS.md": {
+    "sha256_before": "015738fd8b7a547febcd3b0b3cfa1ddd7f40ef44f651a035d16e9a69de0d5410",
+    "lines_before": 47,
+    "archive": "docs/archive/2026-09-13/before-AGENTS.md"
+  },
+  "api_booking/README.md": {
+    "sha256_before": "5cab77a91c73d75f235b62c5b74fc5653baf161ace1e92e94d89f9a12dd52629",
+    "lines_before": 627,
+    "archive": "docs/archive/2026-09-13/before-api-README.md"
+  }
+}
