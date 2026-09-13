@@ -1,4 +1,10 @@
-"""9242 정상 UI의 수동 흐름을 수동적으로 기록한다. 클릭/재조회/주문 전송 없음."""
+"""정상 UI 흐름을 수동적으로 기록한다. 클릭/재조회/주문 전송 없음.
+
+기본은 연구 9242다. 사용자 확정(2026-09-12)으로 운영 예매 9232에도 붙일 수 있다 —
+예매 매크로가 로그인·조회·좌석 선택까지 정상 절차로 진행하는 동안 그 트래픽을
+읽기만 한다. 이 수집기는 어떤 포트에서도 클릭·재전송·주문을 하지 않으며,
+수집 실패가 예매를 중단시키지 않는다(AGENTS: 예매와 계측의 실패 처리 분리).
+"""
 import argparse
 import hashlib
 import json
@@ -28,8 +34,9 @@ def request_input(request):
 
 
 class Collector:
-    def __init__(self, folder, reference_at=None, target=None):
+    def __init__(self, folder, reference_at=None, target=None, port=9242):
         self.folder = folder
+        self.port = port
         self.recorder = ContractRecorder()
         self.requests = {}
         self.errors = []
@@ -190,7 +197,7 @@ class Collector:
             self.errors.append({'requestId':entry['requestId'], 'path': urlsplit(request.url).path, 'phase': 'network', 'error': 'requestfailed'})
 
     def save(self, state='observing'):
-        configuration = {'port':9242,'target':self.target,'referenceAt':self.reference_at}
+        configuration = {'port':self.port,'target':self.target,'referenceAt':self.reference_at}
         data = {**self.recorder.snapshot(), 'schemaVersion':3, 'runId':self.run_id,
                 'state': state, 'updatedAt': time.time(), 'codeHashes':self.hashes,
                 'configuration':configuration,
@@ -228,6 +235,9 @@ def main():
     ap.add_argument('--target-date', help='일반석 관측 대상 YYYY-MM-DD')
     ap.add_argument('--origin', choices=['ICN','CDG'])
     ap.add_argument('--destination', choices=['ICN','CDG'])
+    # 9232 는 운영 예매 브라우저다. 읽기 전용으로만 붙으며 주문을 만들지 않는다.
+    ap.add_argument('--port', type=int, default=9242, choices=[9232, 9233, 9242],
+                    help='붙을 CDP 포트. 기본 9242(연구), 9232=예매·9233=계측 관측용')
     a = ap.parse_args()
     if not 1 <= a.seconds <= 900:
         raise ValueError('수집은 최대15분')
@@ -245,13 +255,13 @@ def main():
         target = {'origin':a.origin,'destination':a.destination,'date':a.target_date,'cabin':'일반석','currency':'KRW'}
     folder = ROOT / 'dev-shots' / 'api-capture' / (time.strftime('%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:8])
     folder.mkdir(parents=True, exist_ok=False)
-    collector = Collector(folder, reference_at=reference, target=target)
+    collector = Collector(folder, reference_at=reference, target=target, port=a.port)
     from playwright.sync_api import sync_playwright
     state = 'failed'
     collector.save('connecting')
     try:
         with sync_playwright() as pw:
-            browser = pw.chromium.connect_over_cdp('http://127.0.0.1:9242', timeout=15000)
+            browser = pw.chromium.connect_over_cdp(f'http://127.0.0.1:{a.port}', timeout=15000)
             context = browser.contexts[0]
             context.on('request', collector.started)
             context.on('response', collector.responded)

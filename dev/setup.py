@@ -22,6 +22,46 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 USER = ROOT / "userscript" / "ke-award-macro.user.js"
 CDP = "http://localhost:9232"
+
+# 로그인 방식(사용자 확정 2026-09-12). 기본은 본인 네이버 연동이다.
+# skypass 복귀는 9232 에만 적용한다 - 9233 계측은 언제나 본인 네이버다.
+PROFILE_BY_PORT = {9232: ".debug-profile", 9233: ".debug-profile2"}
+
+
+def login_mode(env, port):
+    return "skypass" if ((env.get("KE_LOGIN_MODE") or "").strip().lower() == "skypass"
+                         and port == 9232) else "naver"
+
+
+def mode_marker(port):
+    """이 프로필의 현재 세션을 어느 방식으로 만들었는지 적어 둔다.
+
+    살아 있는 세션만 보고는 어느 계정인지 알 수 없다. 표시가 정책과 다르면
+    예전 계정으로 예매될 수 있으므로 9232 는 준비를 중단한다.
+    """
+    name = PROFILE_BY_PORT.get(port)
+    return (ROOT / name / ".ke-login-mode") if name else None
+
+
+def read_mode_marker(port):
+    path = mode_marker(port)
+    try:
+        return path.read_text(encoding="utf-8").strip() if path else ""
+    except OSError:
+        return ""
+
+
+def write_mode_marker(port, mode):
+    """성공 여부를 돌려준다. 삼키면 확인 명령이 거짓 성공을 보고한다."""
+    path = mode_marker(port)
+    if path is None or not path.parent.is_dir():
+        return False
+    try:
+        path.write_text(mode + "\n", encoding="utf-8")
+        return True
+    except OSError as exc:
+        log(f"로그인 방식 표시 저장 실패: {exc}")
+        return False
 CAL = "/booking/calendar-fare-bonus"
 
 
@@ -219,6 +259,38 @@ def main() -> int:
         i = args.index("--port")
         cdp = f"http://localhost:{int(args[i + 1])}"
         del args[i:i + 2]
+    # 사람이 직접 로그인한 세션은 프로그램이 계정을 알 수 없다. 사용자가 어느
+    # 방식으로 들어갔는지 여기서 명시하면 표시만 남기고 끝낸다. 브라우저에
+    # 접속하지 않고 로그인도 하지 않는다.
+    if "--confirm-login" in args:
+        i = args.index("--confirm-login")
+        confirmed = args[i + 1].strip().lower()
+        del args[i:i + 2]
+        try:
+            confirm_port = int(cdp.rsplit(":", 1)[1])
+        except (IndexError, ValueError):
+            confirm_port = 9232
+        if confirmed not in ("naver", "skypass"):
+            print(json.dumps({"ok": False, "why": "로그인 방식은 naver 또는 skypass"},
+                             ensure_ascii=False))
+            return 2
+        if mode_marker(confirm_port) is None:
+            print(json.dumps({"ok": False, "why": f"포트 {confirm_port} 는 표시 대상이 아니다"},
+                             ensure_ascii=False))
+            return 2
+        if not mode_marker(confirm_port).parent.is_dir():
+            print(json.dumps({"ok": False, "why": f"프로필 폴더가 없다: {mode_marker(confirm_port).parent}"},
+                             ensure_ascii=False))
+            return 2
+        if not write_mode_marker(confirm_port, confirmed):
+            print(json.dumps({"ok": False, "port": confirm_port,
+                              "why": f"로그인 방식 표시를 저장하지 못했다: {mode_marker(confirm_port)}"},
+                             ensure_ascii=False))
+            return 2
+        print(json.dumps({"ok": True, "port": confirm_port, "loginMode": confirmed,
+                          "why": "사용자 확인으로 로그인 방식 표시만 기록. 로그인을 수행하지 않았다"},
+                         ensure_ascii=False))
+        return 0
     # 출발지. 유럽발(로마->인천 등) 목표가 생겨서 필요해졌다 - 지금까지는 늘 SEL 이었다.
     want_from = ""
     if "--from" in args:
@@ -254,8 +326,22 @@ def main() -> int:
 
         did_login = False
 
+        # 로그인 정책 대조를 먼저 한다. 아래 달력 조기 반환이 이 검사를 건너뛰면
+        # 이전 계정 세션이 그대로 준비 완료로 인정된다.
+        env = load_env()
+        port = 9232
+        try:
+            port = int(cdp.rsplit(":", 1)[1])
+        except (IndexError, ValueError):
+            pass
+        mode = login_mode(env, port)
+        # 9232 는 표시가 현재 정책과 같을 때만 아래 조기 반환을 허용한다.
+        # 표시가 없거나 다르면 정상 흐름으로 내려가 로그인 상태를 실제로 확인한다.
+        # (로그아웃 상태면 그대로 정책대로 재로그인하고 표시를 새로 쓴다.)
+        marker_ok = (port != 9232) or (read_mode_marker(port) == mode)
+
         # 이미 달력이면 끝 (도착지를 바꿔야 하면 그대로 진행한다)
-        if goal_now(page.url, departure) and not want:
+        if goal_now(page.url, departure) and not want and marker_ok:
             inject()
             log(f"이미 달력 화면: {page.url[:60]}")
             print(json.dumps({"ok": True, "url": page.url, "why": "이미 달력"}, ensure_ascii=False))
@@ -289,28 +375,43 @@ def main() -> int:
                 break
             page.wait_for_timeout(1000)
             inject()
+        if logged and port == 9232:
+            seen = read_mode_marker(port)
+            if seen != mode:
+                # 살아 있는 세션이 어느 계정인지는 화면만 보고 알 수 없다.
+                # 로그아웃 상태였다면 여기 오지 않고 아래에서 정책대로 재로그인한다.
+                where = f"'{seen}' 방식" if seen else "기록 없음"
+                log(f"9232 세션 표시가 {where} 이고 현재 정책은 '{mode}' 다 - 사용자 확인 필요")
+                print(json.dumps({"ok": False, "url": page.url,
+                    "why": f"로그인 확인 필요: 현재 9232 세션이 {where} 인데 정책은 '{mode}' 다. "
+                           f"그 계정이 맞으면 `dev/setup.py --port 9232 --confirm-login {mode}` 로 확인하고, "
+                           f"아니면 사이트에서 로그아웃한 뒤 다시 준비한다"}, ensure_ascii=False))
+                return 2
         if not logged:
-            # 세션이 만료됐으면 네이버 연동으로 다시 들어간다. 네이버 쪽 세션이 살아
+            # 세션이 만료됐으면 네이버 연동으로 들어간다. 네이버 쪽 세션이 살아
             # 있으면 버튼 두 번으로 끝난다 - 비밀번호를 치는 게 아니다.
             # 비밀번호 입력칸이 뜨면 거기서 멈춘다. 그건 사람이 해야 한다.
-            # 어느 방법으로 들어갈지: 실전(9232)은 와이프 스카이패스 아이디/비밀번호,
-            # 계측(9233)은 본인 네이버 연동. .env 에 값이 있어야 아이디/비밀번호를 쓴다.
-            env = load_env()
-            if "9232" in cdp and not (env.get("KE_SKYPASS_ID") and env.get("KE_SKYPASS_PW")):
-                print(json.dumps({"ok": False, "why": "로그인 필요: 실전 계정 자격정보 누락; 다른 로그인 방식으로 전환하지 않음"}, ensure_ascii=False))
+            #
+            # 로그인 방식(사용자 확정 2026-09-12): 9232·9233 모두 기본은 본인 네이버
+            # 연동이다. 이전에는 9232만 와이프 스카이패스 아이디/비밀번호였고 네이버로
+            # 넘어가지 못하게 막아 두었다. 그 제한을 사용자 지시로 해제했다.
+            # **결과: 9232 도 본인 계정으로 로그인된다. 와이프 마일리지로 예매하려면
+            # KE_LOGIN_MODE=skypass 로 되돌리고 .env 자격정보가 있어야 한다.**
+            use_idpw = (mode == "skypass") and env.get("KE_SKYPASS_ID") and env.get("KE_SKYPASS_PW")
+            if mode == "skypass" and not use_idpw:
+                print(json.dumps({"ok": False, "why": "로그인 필요: KE_LOGIN_MODE=skypass 인데 자격정보 누락; 다른 로그인 방식으로 전환하지 않음"}, ensure_ascii=False))
                 return 2
-            use_idpw = ("9232" in cdp) and env.get("KE_SKYPASS_ID") and env.get("KE_SKYPASS_PW")
             if use_idpw:
                 log("로그아웃 상태 - 스카이패스 아이디/비밀번호로 로그인 시도 (.env)")
                 did_login = True
                 if login_idpw(page, inject, env["KE_SKYPASS_ID"], env["KE_SKYPASS_PW"],
                               env.get("KE_LOGIN_TAB", "")):
                     logged = True
+                    write_mode_marker(port, "skypass")
                     log("스카이패스 로그인 성공")
                 else:
-                    # 네이버로 넘어가지 않는다. 9232 는 와이프 스카이패스 계정이고
-                    # 네이버는 본인 계정이라 **다른 사람으로 로그인**된다.
-                    # 게다가 네이버로 넘어가면 화면이 바뀌어 실패 이유를 잃는다.
+                    # 명시적으로 스카이패스를 고른 실행이므로 네이버로 넘어가지 않는다.
+                    # 계정이 다르고, 화면이 바뀌면 실패 이유를 잃는다.
                     log("스카이패스 로그인 실패 - 네이버로 넘어가지 않는다(계정이 다르다)")
                     print(json.dumps({"ok": False, "url": page.url,
                                       "why": "로그인 필요: 스카이패스 로그인 실패"},
@@ -318,10 +419,11 @@ def main() -> int:
                     return 2
 
             if not logged:
-                log("로그아웃 상태 - 네이버 연동으로 다시 로그인 시도")
+                log(f"로그아웃 상태 - 네이버 연동으로 로그인 시도 (포트 {9232 if '9232' in cdp else 9233}, 본인 계정)")
                 did_login = True
                 if login_naver(page, inject):
                     logged = True
+                    write_mode_marker(port, "naver")
                     log("네이버 연동 로그인 성공")
         if not logged:
             log("로그인 안 됨")

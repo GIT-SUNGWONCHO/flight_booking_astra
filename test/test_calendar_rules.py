@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'dev'))
-from test_calendar import plan, rehearsal_plan, render, KST
+from test_calendar import load_calendar, plan, rehearsal_plan, render, KST
 import prepare_day
 
 
@@ -22,9 +22,25 @@ class CalendarRulesTests(unittest.TestCase):
             self.assertEqual(p['departureDate'], departure)
             self.assertIn('출발일 일요일', p['skipReason'])
 
-    def test_weekends_and_important_targets(self):
-        self.assertFalse(plan('2026-09-12')['enabled'])
+    def test_weekends_follow_the_confirmed_setting(self):
+        """주말 휴무는 정책이지 상수가 아니다. 설정을 뒤집어 양쪽을 다 본다.
+
+        2026-09-12 에 사용자가 주말 테스트를 켰다. 기댓값만 True 로 바꾸면
+        weekends=False 일 때 건너뛰는 기능 자체를 아무도 검사하지 않게 된다.
+        """
+        self.assertTrue(plan('2026-09-12')['enabled'])
+        self.assertTrue(plan('2026-09-13')['enabled'])
         self.assertTrue(plan('2026-09-11')['enabled'])
+
+        cfg = load_calendar()
+        cfg['weekends'] = False
+        with patch('test_calendar.load_calendar', return_value=cfg):
+            off = plan('2026-09-12')
+            self.assertFalse(off['enabled'])
+            self.assertIn('주말', off['skipReason'])
+            self.assertTrue(plan('2026-09-11')['enabled'])
+
+    def test_important_targets(self):
         for day in ['2026-09-14', '2026-09-25']:
             self.assertTrue(plan(day)['enabled'])
             self.assertTrue(plan(day)['important'])
