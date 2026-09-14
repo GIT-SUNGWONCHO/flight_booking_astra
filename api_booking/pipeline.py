@@ -237,7 +237,7 @@ class Pipeline:
         return self.state
 
     # --- A4c 주문 응답 ---
-    def judge_order(self, result):
+    def judge_order(self, result, *, allow_observed_amount_layout=False):
         """주문 응답 판정. 전송 뒤이므로 어떤 결과도 주문 미생성의 증거가 아니다."""
         if self.order_request is None:
             return travellers.Outcome('not-ready')
@@ -245,7 +245,8 @@ class Pipeline:
             return travellers.Outcome('order-unknown')
         outcome = travellers.judge(self.order_request, result.get('status'), result.get('body'),
                                    quote=self.quote, target=self.target, session=self.session,
-                                   subject=self.subject, now=self.clock())
+                                   subject=self.subject, now=self.clock(),
+                                   allow_observed_amount_layout=allow_observed_amount_layout)
         # 업무 상태까지 대조한다. 관측된 계약은 구간 status=HK 뿐이다(검토 2331c183 P2).
         if outcome.state == 'order-recorded' and outcome.order.segment_status != 'HK':
             return travellers.Outcome('segment-status-unverified', outcome.order)

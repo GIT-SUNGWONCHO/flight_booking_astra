@@ -99,7 +99,7 @@ def select_date(page, label, wait=2500):
 def select_fare(page, cabin='일반석', wait=3000):
     """항공편 화면에서 '항공편명 KE901 일반석 35,000 마일' 형태의 운임 셀을 고른다."""
     box = page.evaluate("""(cab) => { let hit=null;
-      const re=new RegExp('^항공편명 KE\\\\d+ '+cab+' [\\\\d,]+ 마일$');
+      const re=new RegExp('^항공편명 KE\\\\d+ '+cab+' [\\\\d,]+ 마일(?: [1-9][0-9]* 석)?$');
       const deep=(root,d)=>{ if(!root||d>10||hit) return;
         for(const x of root.querySelectorAll('*')){
           const s=((x.getAttribute&&x.getAttribute('aria-label'))||x.textContent||'')
@@ -252,7 +252,6 @@ def read_gate_summary(page):
       const out=[]; const seen=new Set();
       const deep=(r,d)=>{ if(!r||d>9) return;
         for(const x of r.querySelectorAll('*')){
-          if(x.children.length) continue;
           const t=(x.textContent||'').trim().replace(/\\s+/g,' ');
           const b=x.getBoundingClientRect();
           if(t && b.width>1 && b.height>1 && t.length<60 && !seen.has(t)){seen.add(t); out.push(t);} }
@@ -674,6 +673,24 @@ def wait_provider_window(page, original_pages, *, expected, amount=None, timeout
                 except Exception:  # noqa: BLE001
                     text = ''
                 value['amountVerdict'] = amount_verdict(text, amount)
+                # 혜택/포인트 등 다른 금액과 구분: 최종 결제 버튼에 명시된 금액만 대조한다.
+                buttons=candidate.evaluate("""()=>[...document.querySelectorAll('button,[role=button]')]
+                  .filter(e=>e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden'
+                    &&/결제하기|동의하고\\s*결제/.test(e.innerText||''))
+                  .map(e=>e.innerText||'')""")
+                priced=[t for t in buttons if krw_amounts(t)]
+                if len(priced)==1:
+                    value['amountVerdict']=amount_verdict(priced[0],amount)
+                    value['amountSource']='payment-button'
+                scoped=payment_amount_texts(candidate)
+                if len(scoped)==1:
+                    scoped_verdict=amount_verdict(scoped[0],amount)
+                    if priced and (len(priced)!=1 or value['amountVerdict']!='matched' or scoped_verdict!='matched'):
+                        value['amountVerdict']='conflicting-payment-amounts'
+                        value['amountSource']='payment-button-and-total'
+                    else:
+                        value['amountVerdict']=scoped_verdict
+                        value['amountSource']='accessible-payment-total'
                 value['amountMatched'] = value['amountVerdict'] == 'matched'
             if value.get('ready') or not best.get('provider'):
                 best = value
@@ -691,10 +708,20 @@ def wait_provider_window(page, original_pages, *, expected, amount=None, timeout
         waited += step_ms
 
 
+def payment_amount_texts(page):
+    """Npay 결제금액의 접근성 텍스트. 애니메이션용 aria-hidden 숫자는 복제본에서만 제외."""
+    return page.evaluate('''()=>[...document.querySelectorAll('*')]
+      .filter(e=>e.children.length===0&&e.textContent.trim()==='결제금액')
+      .filter(e=>e.parentElement.getClientRects().length&&getComputedStyle(e.parentElement).visibility!=='hidden')
+      .map(e=>{const c=e.parentElement.cloneNode(true);
+        c.querySelectorAll('[aria-hidden="true"]').forEach(x=>x.remove());
+        return c.textContent.replace(/\\s+/g,' ').trim();})''')
+
+
 def payment_pass(page, *, flight, date, reference=None, ordered_at=None, mileage=None,
                  log=print, navigate=True, clock=time.monotonic, wait_ms=9000,
                  origin='ICN', destination=None, amount=None, pace=1.0,
-                 window_timeout_ms=25000):
+                 window_timeout_ms=25000, existing_watch=None, mileage_verifier=None):
     """pnr 이후 기존 예매 절차(동의~결제하기)를 브라우저 클릭으로 이어가고 새 결제창을 판정한다(D5).
 
     **사용자 확정(2026-09-13): 동의부터는 API 가 아니라 기존 브라우저 클릭 방식.**
@@ -706,7 +733,7 @@ def payment_pass(page, *, flight, date, reference=None, ordered_at=None, mileage
     """
     def w(ms):
         return max(0, int(ms * pace))
-    if not navigate:
+    if not navigate and existing_watch is None:
         log('  이미 열린 게이트는 어느 주문인지 대조할 수 없다. 아무것도 누르지 않는다.')
         return {'navigated': False, 'matched': False, 'order': 'unverifiable-existing-gate',
                 'steps': {}, 'completed': False, 'stage': 'not-started'}
@@ -719,8 +746,19 @@ def payment_pass(page, *, flight, date, reference=None, ordered_at=None, mileage
         log(f'  방향 {origin}-{destination} 의 결제수단은 이 단계가 다루지 않는다(Npay 전용).')
         return {'navigated': False, 'matched': False, 'order': 'unsupported-provider',
                 'steps': {}, 'completed': False, 'stage': 'unsupported-provider'}
-    result, watch = open_gate(page, date=date, reference=reference, ordered_at=ordered_at,
-                              mileage=mileage, log=log, clock=clock, wait_ms=wait_ms)
+    if existing_watch is not None:
+        if (navigate or not isinstance(existing_watch, HandoffWatch)
+                or existing_watch._page is not page or existing_watch._context is not page.context
+                or existing_watch.started is None or page.url != GATE):
+            return {'matched':False,'completed':False,'stage':'invalid-existing-watch','steps':{}}
+        watch=existing_watch
+        verdict=watch.judge(reference, ordered_at)
+        display,hits=_display_hints(read_gate_summary(page),date=date,mileage=mileage)
+        result={'navigated':False,'matched':verdict.same_reference and display,
+                'order':verdict.state,'hits':hits}
+    else:
+        result, watch = open_gate(page, date=date, reference=reference, ordered_at=ordered_at,
+                                  mileage=mileage, log=log, clock=clock, wait_ms=wait_ms)
     result.update(steps={}, completed=False, stage='gate')
     try:
         if not result['matched']:
@@ -739,14 +777,28 @@ def payment_pass(page, *, flight, date, reference=None, ordered_at=None, mileage
                 result['stage'] = f'agree-turned-off:{agree_id}'
                 log(f'  **동의 {agree_id} 가 꺼져 있다. 결제하기를 누르지 않는다.**')
                 return result
-        mileage_step = apply_mileage(page, log=log, pace=pace)
+        mileage_step = (mileage_verifier(page,mileage) if mileage_verifier is not None
+                        else apply_mileage(page, log=log, pace=pace))
         result['steps']['mileage'] = mileage_step
         if not mileage_step['verified']:
             result['stage'] = f'mileage-{mileage_step["result"]}'
             log(f'  **마일리지 적용을 확인하지 못했다({mileage_step["result"]}). 결제하기로 가지 않는다.**')
             return result
         if _radio_checked(page, 'rad-naverpay') is not True:
-            result['steps']['npay'] = click_id(page, 'rad-naverpay', wait=w(1500))
+            label=page.locator('label[for="rad-naverpay"]')
+            if label.count()==1 and label.is_visible():
+                try:
+                    if not label.is_enabled():
+                        result['stage']='npay-not-selected'
+                        return result
+                    label.click(timeout=5000)
+                    page.wait_for_timeout(w(1500))
+                    result['steps']['npay']=True
+                except Exception:
+                    result['stage']='npay-not-selected'
+                    return result
+            else:
+                result['steps']['npay'] = click_id(page, 'rad-naverpay', wait=w(1500))
         checked = _radio_checked(page, 'rad-naverpay')
         result['steps']['npayChecked'] = checked
         log(f'  Npay 선택 확인={checked}')
@@ -799,5 +851,5 @@ def payment_pass(page, *, flight, date, reference=None, ordered_at=None, mileage
         log('  **이번 주문의 Npay 결제창에 도착했다. 제공자 창 안에서는 누르지 않는다. 최종 승인은 사용자.**')
         return result
     finally:
-        if watch is not None:
+        if watch is not None and existing_watch is None:
             watch.stop()

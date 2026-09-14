@@ -12,6 +12,31 @@ def money(value):
         return None
 
 
+def order_amount_diagnostic(body, quote):
+    """주문 판정 실패 원인만 보존한다. 원문·예약번호·토큰은 반환하지 않는다."""
+    import json
+    try:
+        data = json.loads(body) if isinstance(body, str) else None
+    except (ValueError, TypeError):
+        data = None
+    if not isinstance(data, dict):
+        return {'responseObject': False}
+    fare = data.get('pnrFareInfo')
+    result = {'responseObject': True,
+              'referencePresent': isinstance(data.get('pnr'), str) and bool(data['pnr'].strip()),
+              'fareObject': isinstance(fare, dict)}
+    if isinstance(fare, dict):
+        result['currencyMatches'] = fare.get('currency') == quote.target.currency
+        result['values'] = {}
+        for key, expected in (('amount', quote.amount), ('totalAmount', quote.total_amount),
+                              ('mileage', quote.mileage)):
+            actual = money(fare.get(key))
+            result['values'][key] = {'fare': str(expected),
+                                    'order': str(actual) if actual is not None else None,
+                                    'matches': actual == expected}
+    return result
+
+
 def itinerary(data):
     bounds = data.get('boundList') if isinstance(data, dict) else None
     if not isinstance(bounds, list) or not bounds:

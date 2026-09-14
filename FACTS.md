@@ -1,6 +1,6 @@
 # 관측 근거와 해석 한계
 
-기준: 2026-09-13. 현재 계획은 [API README](api_booking/README.md), 상태/첫 작업은 [NOW](NOW.md). 이 문서는 관측·사용자 설명·코드 대조를 구분한다. 이번 정리는 새 실사이트 검증이 아니다.
+기준: 2026-09-14. 최신 추가: [일반석 API→Npay 연속 리허설](api_booking/rehearsal-2026-09-14-1637.md). 현재 계획은 [API README](api_booking/README.md), 상태/첫 작업은 [NOW](NOW.md). 이 문서는 관측·사용자 설명·코드 대조를 구분한다. 아래9/13 항목은 과거 기록이며 최신 리허설과 구분한다.
 
 <a id="api-evidence"></a>
 ## 1. API 예매와 9/13 실패
@@ -14,7 +14,7 @@
 | 9/13 정적 검토 | 게이트 날짜/마일리지 비교만으로 새 pnr 동일성 확인 불가. 배타 전송·늦은 무장·결제 성공 오판 결함 | 검토는 실행 시험이 아님. 현재 로그인/서버 주문 상태를 확인한 것도 아님 |
 | 준비 주문 | 9/13 아침 캡처 통과 임시 보유3건 기록 | 이3건을 전체 실험 생성 총수로 해석하지 않음. 결제/해제 증거 없음 |
 
-근거: [사건 기록·실측표·수집ID](api_booking/live-attempt-2026-09-13.md), [수집 구조](dev-shots/api-capture/20260912-232135-f66cf6b8/contracts.json), [최종 검토](dev-shots/reviews/20260913-084941-c1010a07/review.md).
+근거: [과거 사건 기록·실측표](docs/archive/2026-09-14/historical-api/live-attempt-2026-09-13.md), [수집 구조](dev-shots/api-capture/20260912-232135-f66cf6b8/contracts.json), [최종 검토](dev-shots/reviews/20260913-084941-c1010a07/review.md).
 
 ## 2. 사용자 설명과 요청 계약
 
@@ -60,7 +60,7 @@
 
 ## 5. 철회한 주장과 근거 보존
 
-- Date 헤더는 재고 확인 시각이 아니다. 기존6초 마감·0.132초 늦음·4.5초 하한·1.5초 여유는 사용하지 않는다. [계산/가정 검토](api_booking/feasibility-review-2026-09-12.md).
+- Date 헤더는 재고 확인 시각이 아니다. 기존6초 마감·0.132초 늦음·4.5초 하한·1.5초 여유는 사용하지 않는다. [계산/가정 검토](docs/archive/2026-09-14/historical-api/feasibility-review-2026-09-12.md).
 - ‘API3회면 반드시 충분’, ‘pnr 응답 순간이 정확한 보유 시작’, ‘주문 후 게이트 날짜가 맞으면 같은 주문’은 입증되지 않았다.
 - 9/9~10 원본 일부는 이 Mac에 없다. [정리 전 FACTS](docs/archive/2026-09-13/before-FACTS.md)에 원래 경로·실행ID·실패/회귀 이력을 보존했다. 파일 미존재를 재검증 성공으로 바꾸지 않는다.
-- [9/13 사건 기록](api_booking/live-attempt-2026-09-13.md)은 당시 경과이며 현재 실행 지시가 아니다. 과거 기술 추정 중 현재 문서와 충돌하는 것은 현재 FACTS/API 계획의 한계를 따른다.
+- [9/13 사건 기록](docs/archive/2026-09-14/historical-api/live-attempt-2026-09-13.md)은 당시 경과이며 현재 실행 지시가 아니다. 과거 기술 추정 중 현재 문서와 충돌하는 것은 현재 FACTS/API 계획의 한계를 따른다.

@@ -1,0 +1,68 @@
+from dataclasses import replace
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+import order_evidence as store
+from test_state_bridge import Fixture
+from test_live_order import FlowHarness,CAL_URL
+import live_order
+
+class EvidenceTests(Fixture,unittest.TestCase):
+    def setUp(self):
+        self.setup_fixture();self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
+        self.root=Path(self.temp.name);self.run='abcdef123456'
+        data=json.loads(self.order['body'])
+        data.update(pnr='FAKEPNR',orderId='FAKE-ORDER',token='SECRET_TOKEN',
+            travellerInfoList=[{'name':'SECRET_NAME','travellerId':'SECRET_ID'}],
+            headers={'Authorization':'SECRET_AUTH'},pageTicket='SECRET_TICKET')
+        self.order.update(body=json.dumps(data),startedAt=1000.)
+    def save(self):
+        return store.save_received(self.root,run_id=self.run,target=self.quote.target,
+            response=self.order,quote=self.quote,passenger_fingerprint='a'*64,received_at=1006.)
+    def test_allowlist_round_trip_preserves_reference_on_failed_judgment(self):
+        path=self.save();before=path.read_bytes()
+        store.save_judgment(self.root,self.run,'amount-mismatch')
+        self.assertEqual(before,path.read_bytes())
+        data=store.load_received(self.root,self.run)
+        self.assertEqual(data['pnr'],'FAKEPNR');self.assertEqual(data['orderId'],'FAKE-ORDER')
+        self.assertEqual(data['passengerFingerprint'],'a'*64)
+        self.assertNotIn('SECRET',path.read_text());self.assertIsNone(data['serverOrderCreatedAt'])
+        self.assertNotEqual(data['orderRequestStartedAt'],data['orderResponseReceivedAt'])
+    def test_invalid_or_missing_response_keeps_missing_fields_null(self):
+        self.order['body']='not json SECRET'
+        data=json.loads(self.save().read_text())
+        self.assertIsNone(data['pnr']);self.assertIsNone(data['orderId'])
+        self.assertFalse(data['diagnostic']['responseObject'])
+    def test_no_overwrite_or_path_traversal(self):
+        self.save()
+        with self.assertRaises(ValueError):self.save()
+        with self.assertRaises(ValueError):store.load_received(self.root,'../secret')
+    def test_unknown_error_text_is_not_persisted(self):
+        store.save_judgment(self.root,self.run,'SECRET_EXCEPTION')
+        self.assertNotIn('SECRET', (self.root/'order-evidence'/self.run/'judgment.json').read_text())
+
+class EvidenceRunnerTests(FlowHarness):
+    def test_disk_delay_does_not_change_reported_response_time(self):
+        original=live_order.time.monotonic
+        offset=[0.]
+        def slow_store(*args,**kwargs):offset[0]=100.
+        with patch.object(live_order.order_evidence,'save_received',side_effect=slow_store), \
+             patch.object(live_order.time,'monotonic',side_effect=lambda:original()+offset[0]):
+            code,_,_,_=self.run_main(initial_url=CAL_URL)
+        self.assertEqual(code,0)
+        line=next(x for x in self.logs if x.startswith('주문 status='))
+        seconds=float(line.rsplit('(+',1)[1].split('s)',1)[0])
+        self.assertLess(seconds,100.)
+
+    def test_receipt_saved_before_judge_exception(self):
+        with patch.object(live_order.pipeline.Pipeline,'judge_order',side_effect=ValueError('SECRET')):
+            code,_,calls,_=self.run_main(initial_url=CAL_URL)
+        self.assertEqual(code,2)
+        paths=list(self.tmp.rglob('received.json'))
+        self.assertEqual(len(paths),1)
+        self.assertEqual(json.loads(paths[0].read_text())['pnr'],'FAKEPNR')
+        self.assertEqual(sum(c.startswith('send:inputTravellers') for c in calls),1)
+
+if __name__=='__main__':unittest.main()

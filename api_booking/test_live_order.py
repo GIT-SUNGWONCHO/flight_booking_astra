@@ -65,7 +65,7 @@ class FlowHarness(unittest.TestCase):
 
     def run_main(self, *extra, intent=None, snap=None, steps=None, back=None,
                  on_calendar=True, capture_error=None, send_override=None, tmp=None,
-                 replies=None, mileage='100000', reuse=True, clock=None):
+                 replies=None, mileage='100000', reuse=True, clock=None, initial_url=GATE_URL):
         if tmp is None:
             tmp = Path(tempfile.mkdtemp())
             self.addCleanup(shutil.rmtree, tmp, True)
@@ -77,7 +77,7 @@ class FlowHarness(unittest.TestCase):
         if intent is not None:
             (tmp / f'order-intent-{day}.json').write_text(json.dumps(intent), encoding='utf-8')
         calls = []
-        page = types.SimpleNamespace(url=GATE_URL, evaluate=mock.Mock(return_value={}))
+        page = types.SimpleNamespace(url=initial_url, evaluate=mock.Mock(return_value={}))
         ctx = types.SimpleNamespace(pages=[page])
         connect = mock.Mock(return_value=types.SimpleNamespace(contexts=[ctx]))
         pw = types.SimpleNamespace(chromium=types.SimpleNamespace(connect_over_cdp=connect))
@@ -304,6 +304,43 @@ class FireJudgementTests(FlowHarness):
         code, _, calls, intent = self.run_main('--gate-only', replies={'inputTravellers': bad})
         self.assertEqual((code, intent), (2, 'unknown'))
         self.assertEqual(calls.count('send:inputTravellers@calendar-fare-bonus'), 1)
+
+    def test_failed_order_inspection_keeps_unknown_and_does_not_resend(self):
+        bad = order_response()
+        bad['pnrFareInfo']['amount'] = '123'
+        with mock.patch.object(live_order.recovery, 'inspect_failure') as inspect:
+            code, _, calls, intent = self.run_main('--inspect-failure', '--gate-only',
+                replies={'inputTravellers': bad})
+        self.assertEqual((code, intent), (2, 'unknown'))
+        inspect.assert_called_once()
+        self.assertEqual(calls.count('send:inputTravellers@calendar-fare-bonus'), 1)
+        self.assertTrue((self.tmp / 'order-permit.json').exists())
+        code, connect, _, _ = self.run_main(tmp=self.tmp)
+        self.assertEqual((code, connect.call_count), (2, 0))
+
+    def test_real_inspector_eof_and_interrupt_keep_single_send(self):
+        bad = order_response()
+        bad['pnrFareInfo']['amount'] = '123'
+        for error in (EOFError, KeyboardInterrupt):
+            with self.subTest(error=error), mock.patch('builtins.input', side_effect=error):
+                code, _, calls, intent = self.run_main('--inspect-failure',
+                    replies={'inputTravellers':bad})
+            self.assertEqual((code, intent), (2, 'unknown'))
+            self.assertEqual(calls.count('send:inputTravellers@calendar-fare-bonus'), 1)
+            self.assertTrue((self.tmp / 'order-permit.json').exists())
+
+    def test_judge_exception_keeps_response_without_exception_text(self):
+        with mock.patch.object(live_order.pipeline.Pipeline, 'judge_order',
+                               side_effect=RuntimeError('SECRET-PAYLOAD')), \
+                mock.patch.object(live_order.recovery, 'inspect_failure') as inspect:
+            code, _, calls, intent = self.run_main('--inspect-failure')
+        self.assertEqual((code, intent), (2, 'unknown'))
+        self.assertEqual(calls.count('send:inputTravellers@calendar-fare-bonus'), 1)
+        inspect.assert_called_once()
+        self.assertIn('body', inspect.call_args.args[0])
+        self.assertNotIn('SECRET', '\n'.join(self.logs))
+        record = json.loads((self.tmp / 'order-intent-2099-01-01.json').read_text())
+        self.assertEqual(record['why'], 'order-judge-exception')
 
     def test_member_check_reuse_must_be_explicit(self):
         self.assert_no_order(reuse=False)

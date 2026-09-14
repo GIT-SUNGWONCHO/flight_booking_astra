@@ -32,6 +32,11 @@ import permit  # noqa: E402
 import pipeline  # noqa: E402
 import site_drive  # noqa: E402
 import transport  # noqa: E402
+import recovery  # noqa: E402
+import order_evidence  # noqa: E402
+import connected_bridge  # noqa: E402
+import explicit_retry  # noqa: E402
+from evidence import order_amount_diagnostic  # noqa: E402
 from availability import Target  # noqa: E402
 from order_flow import Checks, Event, OrderFlow  # noqa: E402
 from runtime import KST  # noqa: E402
@@ -129,6 +134,20 @@ def main():
     ap.add_argument('--dry', action='store_true',
                     help='API 주문 전송 직전까지만. 조회·운임 요청은 실제로 보낸다. 캡처 준비의 '
                          '주문 요청은 막지만 실사이트에서 막힘을 확인하지 않았다(무주문 보장 아님)')
+    ap.add_argument('--inspect-failure', action='store_true',
+                    help='주문 응답 검증 실패 후 실행 메모리에 응답을 유지한다. '
+                         '터미널 summary/exit만 허용하며 EOF 시 종료. 재전송·결제·잠금 해제 없음')
+    ap.add_argument('--state-bridge', action='store_true',
+                    help='동일 날짜 일반석 연구용: 검증 응답을 앱 상태로 인계 후 기존 동의/Npay 진행. '
+                         '--continue-payment와 열린 입력의 --inspect-failure 필요. 실사이트 미검증')
+    ap.add_argument('--retry-of',default='',help='사용자가 새 일반석 시험을 명시 요청한 경우 이전 실패 runId. '
+                    '동일 날짜/목표·unknown 1건만 허용, 이력 보존, 자동 재시도 없음')
+    ap.add_argument('--resume-preparation',action='store_true',
+                    help='주문 전 중단된 명시 재시험 준비를 사용자 지시로 1회 재개. retry-of 필수')
+    ap.add_argument('--retry-after-handoff-failure',action='store_true',
+                    help='사용자가 새 시험을 승인한 ordered/bridge-exception 1건의 별도 재시험. retry-of 필수')
+    ap.add_argument('--retry-after-checkout',action='store_true',
+                    help='사용자가 별도 일반석 연속 리허설을 승인한 경우. 이전 Npay 기록/전송권 보존, retry-of 필수')
     ap.add_argument('--day', default=None, help='실행일 YYYY-MM-DD(KST). 기본은 오늘')
     ap.add_argument('--capture-date', default='',
                     help="캡처용 이미 열린 날짜 라벨 예: '09월 07일'. 발사 모드에서 필수. 이 날짜로 "
@@ -155,6 +174,14 @@ def main():
     if a.status:
         return show_status(a.day)
 
+    if a.state_bridge:
+        expected_label=f'{a.date[5:7]}월 {a.date[8:10]}일'
+        if (not a.continue_payment or not a.inspect_failure or a.gate_only or a.payment_only
+                or a.family!='KEBONUSEY' or a.capture_cabin!='일반석'
+                or a.capture_date!=expected_label or a.at):
+            log('상태 인계는 동일 날짜 일반석 즉시 리허설만 지원한다. continue-payment와 inspect-failure 필요')
+            return 2
+
     if a.payment_only:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
@@ -168,14 +195,32 @@ def main():
 
     # --dry 도 조회·운임을 보내고 캡처 준비를 거친다. 미해결 주문·남은 전송권이 있으면 모두 거부한다.
     pending = unresolved_intents()
-    if pending:
-        log(f'미해결 주문 기록이 있다: {pending}. 정상 예약 조회로 확인한 뒤 해당 '
-            f'{STATE}/order-intent-<날짜>.json 을 state=resolved 로 바꾼다')
+    if (a.resume_preparation or a.retry_after_handoff_failure or a.retry_after_checkout) and not a.retry_of:
+        log('준비 재개에는 retry-of가 필요하다')
+        return 2
+    a.retry_claim=None
+    if a.retry_of:
+        if not a.state_bridge or a.dry:
+            log('명시 재시험은 state-bridge 일반석 리허설에서만 허용한다')
+            return 2
+        try:
+            a.retry_claim=explicit_retry.claim(STATE,previous_id=a.retry_of,day=a.day,
+                target={'date':a.date,'origin':a.origin,'destination':a.destination,
+                        'flight':a.flight,'family':a.family},pending=pending,
+                at=datetime.now(KST).isoformat(),resume_preparation=a.resume_preparation,
+                after_handoff_failure=a.retry_after_handoff_failure,after_checkout=a.retry_after_checkout)
+        except (ValueError,OSError):
+            log('명시 재시험 기록이 불일치하거나 이미 소비됐다 - 실행하지 않음')
+            return 2
+        log('사용자 요청 새 시험 1회: 이전 unknown 기록 보존, 서버 해제 확인 아님')
+    if pending and a.retry_claim is None:
+        log(f'이전 응답 검증 미해결 기록이 있다: {pending}. '
+            '예약 목록으로 좌석 확보·해제를 판단할 수 없다. 기록을 보존하고 이전 시도 처리 절차를 확인한다.')
         return 2
     held = permit.existing_permit(STATE)
-    if held:
+    if held and a.retry_claim is None:
         log(f'주문 전송권이 이미 쓰였다: {held}. 새 주문을 보내지 않는다. '
-            f'정상 예약 조회로 확인한 뒤 사용자가 {permit.permit_path(STATE)} 를 치운다')
+            '예약 목록에 없다는 이유로 전송권을 삭제하지 않는다.')
         return 2
     # 실행일과 발사 시각은 시작할 때 한 번 고정한다(D4).
     try:
@@ -220,8 +265,8 @@ def show_status(day):
     log(f'  전송권(날짜 무관): {held}')
     log(f'  모든 실행일의 미해결 의도: {blocking}')
     if blocking or held:
-        log('  새 실행은 거부된다. 정상 예약 조회로 이 실행일의 주문 상태를 확인한 뒤 '
-            '사용자가 의도 기록을 resolved 로 바꾸고 전송권 파일을 치운다. 프로그램은 대신 치우지 않는다.')
+        log('  현재 실행기는 새 실행을 거부한다. unknown은 로컬 판정 실패이며 좌석 보유 증거가 아니다. '
+            '예약 목록으로 해제를 판정하거나 기록을 임의 삭제하지 않는다. 별도 재시도 처리 절차가 필요하다.')
         return 2
     log('  남은 주문 의도·전송권 없음')
     return 0
@@ -271,7 +316,14 @@ def run(a, ledger, target, balance, fire_at):
     with sync_playwright() as pw:
         browser = pw.chromium.connect_over_cdp(f'http://127.0.0.1:{a.port}', timeout=15000)
         ctx = browser.contexts[0]
-        page = ctx.pages[0]
+        if a.state_bridge:
+            candidates=[p for p in ctx.pages if p.url==site_drive.CALENDAR]
+            if len(candidates)!=1:
+                log('상태 인계 대상 달력 탭이 정확히 하나여야 한다 - 준비/주문하지 않음')
+                return 2
+            page=candidates[0]
+        else:
+            page = ctx.pages[0]
         transport.arm(ctx)
         transport.install(page)   # 현재 문서에도 건다
         log(f'후킹 설치. 현재 {page.url[:70]}')
@@ -449,6 +501,14 @@ def send_counted(page, cap, ledger, name, body=None):
 
 def fire(page, snap, a, ledger, pl):
     """메모리 캡처로 현재 문서에서 조회→운임→필수 검증→주문을 보낸다. 주문 뒤 인계는 옵션에 따른다."""
+    binding=None
+    if a.state_bridge:
+        try:
+            binding=connected_bridge.bind(page, session=pl.session, subject=pl.subject)
+            connected_bridge.state_bridge.validate_prepared_storage(binding.storage,pl.target)
+        except Exception:
+            log('상태 인계 준비 문맥 확인 실패 - API 발사하지 않음')
+            return 2
     t0 = time.monotonic()
     log(f'T0 발사: {a.date} {a.carrier}{a.flight} {a.origin}-{a.destination} {a.family} '
         f'· 문서 {page.url[-40:]}')
@@ -486,11 +546,27 @@ def fire(page, snap, a, ledger, pl):
         log(f'필수 검증 {state} - 주문하지 않는다')
         return 2
 
+    if a.state_bridge:
+        started=time.monotonic()
+        try:
+            connected_bridge.preflight(binding,target=pl.target)
+        except Exception as exc:
+            diagnostic=connected_bridge.error_summary(exc)
+            ledger.add('fire','bridge-preflight-refused')
+            log('주문 전 인계 점검 실패 - 주문 전송 없음: '+json.dumps(diagnostic,ensure_ascii=False))
+            return 2
+        log(f'주문 전 인계 점검 통과 ({(time.monotonic()-started)*1000:.0f}ms)')
+
     # 배타 전송권: 같은 실행일에 한 프로세스만 주문 요청을 보낸다. 자동으로 풀지 않는다(D4).
     run_id = uuid4().hex[:12]
-    got = permit.acquire(STATE, day=a.day, run_id=run_id, now_iso=datetime.now(KST).isoformat(),
-                         target={'date': a.date, 'origin': a.origin, 'destination': a.destination,
-                                 'flight': a.flight, 'family': a.family})
+    target_record={'date':a.date,'origin':a.origin,'destination':a.destination,
+                   'flight':a.flight,'family':a.family}
+    if a.retry_claim is not None:
+        got=explicit_retry.transfer(a.retry_claim,run_id=run_id,day=a.day,target=target_record,
+                                    at=datetime.now(KST).isoformat())
+    else:
+        got = permit.acquire(STATE, day=a.day, run_id=run_id, now_iso=datetime.now(KST).isoformat(),
+                             target=target_record)
     if got is None:
         ledger.add('fire', 'inputTravellers-permit-denied')
         log('**다른 실행이 이미 주문 전송권을 가졌다. 주문하지 않는다.**')
@@ -504,26 +580,60 @@ def fire(page, snap, a, ledger, pl):
     # 주문 본문은 캡처 원문을 그대로 보낸다. 구조 판정은 prepare_order 에서 끝났다.
     try:
         r3 = send_counted(page, snap[ORDER], ledger, 'inputTravellers')
+        response_received_at=time.time()
+        response_received_mono=time.monotonic()
     except BaseException:
         flow.advance(Event.INTERRUPT)
         record_intent(a.day, 'unknown', why='order-send-exception', runId=run_id)
         raise
-    outcome = pl.judge_order(r3)
-    elapsed = time.monotonic() - t0
+    try:
+        try:
+            order_evidence.save_received(STATE,run_id=run_id,target=pl.target,response=r3,
+                quote=pl.quote,passenger_fingerprint=pl.member.traveller_digest,
+                received_at=response_received_at)
+            log('허용 항목 주문 증거 저장 완료 (식별자 원문은 터미널에 출력하지 않음)')
+        except Exception:
+            log('주문 증거 저장 실패 - 응답은 메모리에 유지하며 주문을 재전송하지 않음')
+        outcome = pl.judge_order(r3,allow_observed_amount_layout=a.state_bridge)
+    except Exception:
+        # 판정 코드 자체의 예외도 이미 전송한 주문을 재시도할 이유가 아니다.
+        # 예외 문자열에는 응답 원문이 들어갈 수 있으므로 출력하지 않는다.
+        flow.advance(Event.INTERRUPT)
+        record_intent(a.day, 'unknown', why='order-judge-exception', runId=run_id)
+        save_order_judgment(run_id,'order-judge-exception')
+        log('주문 응답 판정 코드 예외 - 원문을 로그에 출력하지 않고 unknown 유지')
+        if a.inspect_failure:
+            recovery.inspect_failure(r3, pl.quote, emit=log)
+        return 2
+    save_order_judgment(run_id,outcome.state)
+    elapsed = response_received_mono - t0
     log(f'주문 status={r3.get("status")} {r3.get("elapsedMs",0):.0f}ms 판정={outcome.state} '
         f'(+{elapsed:.3f}s)')
     if outcome.state != 'order-recorded':
         # 어떤 판정도 주문 미생성의 증거가 아니다. 재전송하지 않는다. 전송권도 남긴다.
         flow.advance(Event.INTERRUPT)
-        record_intent(a.day, 'unknown', why=outcome.state, runId=run_id)
-        log('주문 응답을 이번 목표 주문으로 확인하지 못했다 - 재전송 금지. 정상 예약 조회로 확인한다')
+        diagnostic = order_amount_diagnostic(r3.get('body'), pl.quote)
+        record_intent(a.day, 'unknown', why=outcome.state, runId=run_id,
+                      diagnostic=diagnostic)
+        log('주문 응답 진단(개인정보 제외): ' + json.dumps(diagnostic, ensure_ascii=False))
+        log('주문 응답 검증 실패 - 재전송하지 않는다. 좌석 상태는 미확인이며 예약 목록으로 판정하지 않는다')
+        if a.inspect_failure:
+            resumed = recovery.inspect_failure(r3, pl.quote, emit=log,
+                resume=(lambda: resume_retained_order(page,a,ledger,pl,binding,r2,r3,run_id))
+                    if a.state_bridge else None)
+            if resumed == 'resumed':
+                return 0
         return 2
     order = outcome.order
     flow.advance(Event.CONFIRM_ORDER)
     record_intent(a.day, 'ordered', segmentStatus=order.segment_status,
-                  amountsMatched=order.amounts_matched, runId=run_id)
+                  amountsMatched=order.amounts_matched,
+                  paymentAmountsMatched=order.payment_amounts_matched,
+                  amountLayout=order.amount_layout, runId=run_id)
     log(f'주문 응답 확인  **T0 → 주문 응답 {elapsed:.3f}초** (보유 시작 시각은 미확인)')
     mileage = pl.mileage_label()
+    if a.state_bridge:
+        return bridged_payment(page, a, ledger, pl, binding, r2, r3, order, run_id)
     if a.gate_only:
         log(f'결제 게이트로 이동 (주문 참조 대조 + 문구 {a.date}, {mileage} 마일, KRW)')
         # 주문 참조 원문은 메모리로만 넘긴다. 로그에는 판정 상태만 남는다.
@@ -567,6 +677,94 @@ def fire(page, snap, a, ledger, pl):
     flow.advance(Event.CONFIRM_PAYMENT_WINDOW)
     log('이번 주문의 Npay 결제창에 도착했다. **최종 승인은 사용자가 한다.**')
     return 0
+
+
+def save_order_judgment(run_id,state):
+    try:order_evidence.save_judgment(STATE,run_id,state)
+    except Exception:log('주문 판정 증거 저장 실패 - 기존 응답/전송권 유지, 재전송 없음')
+
+
+def resume_retained_order(page,a,ledger,pl,binding,fare_response,order_response,run_id):
+    """원래 응답만 재검증한다. transport·준비·조회·새 주문으로 돌아가는 경로 없음."""
+    if not a.state_bridge or binding is None or binding.used or pl.order_request is None:
+        return False
+    age=time.monotonic()-pl.order_request.created
+    if not 0 <= age <= 30:
+        log('보존 응답의 인계 유효시간 초과. 시각을 갱신하거나 재주문하지 않음')
+        return False
+    outcome=pl.judge_order(order_response,allow_observed_amount_layout=True)
+    if outcome.state!='order-recorded' or not outcome.order.payment_amounts_matched:
+        log('보존 응답 재검증 미통과. 기존 미확인 기록 유지')
+        return False
+    return bridged_payment(page,a,ledger,pl,binding,fare_response,order_response,
+                           outcome.order,run_id,inspect_on_failure=False)==0
+
+
+def bridged_payment(page, a, ledger, pl, binding, fare_response, order_response, order, run_id,
+                    *, inspect_on_failure=True):
+    """주문 전송은 끝난 상태. 인계 실패도 재전송하지 않고 기존 응답 조사로 이어간다."""
+    connection=None
+    completed=False
+    try:
+        connection=connected_bridge.connect(binding,request=pl.order_request,quote=pl.quote,
+            fare_response=fare_response,order_response=order_response,
+            allow_observed_amount_layout=a.state_bridge,
+            passenger_fingerprint=pl.member.traveller_digest)
+        result=connection.result
+        ready=(result.get('matched') is True and result.get('sessionUnchanged') is True
+               and result.get('displayHints') and all(result['displayHints'].values()))
+        stage=result.get('stage','bridge-failed')
+        log('인계 확인: '+json.dumps({'matched':result.get('matched'),
+            'sessionUnchanged':result.get('sessionUnchanged'),
+            'cookieStampUnchanged':result.get('cookieStampUnchanged'),
+            'displayHints':result.get('displayHints')},ensure_ascii=False))
+        if ready:
+            result=site_drive.payment_pass(page,flight=a.flight,date=a.date,mileage=pl.mileage_label(),
+                reference=order.reference,ordered_at=order.received,origin=a.origin,
+                destination=a.destination,amount=pl.quote.total_amount,log=log,
+                navigate=False,existing_watch=connection.guard,
+                mileage_verifier=connected_bridge.resume_gate.ensure_mileage)
+            completed=result.get('completed') is True
+            stage=result.get('stage','payment-failed')
+        ledger.add('handoff',f'bridge:{stage}')
+        record_intent(a.day,'ordered',runId=run_id,handoff=stage,paymentWindowReached=completed,
+            diagnostic=result.get('diagnostic'),
+            bridgeChecks={k:connection.result.get(k) for k in
+                ('matched','sessionUnchanged','cookieStampUnchanged','displayHints','stage')},
+            amountsMatched=order.amounts_matched,paymentAmountsMatched=order.payment_amounts_matched,
+            amountLayout=order.amount_layout)
+        log(f'상태 인계 결과: {stage}, 실제 결제창 완료={completed}')
+        if result.get('diagnostic'):
+            log('인계 진단(개인정보 제외): '+json.dumps(result['diagnostic'],ensure_ascii=False))
+        if not completed and inspect_on_failure:
+            resumed=inspect_handoff(page,a,ledger,pl,binding,fare_response,order_response,run_id)
+            if resumed:return 0
+        return 0 if completed else 2
+    except Exception as exc:
+        diagnostic=connected_bridge.error_summary(exc)
+        record_intent(a.day,'ordered',runId=run_id,handoff='bridge-exception',paymentWindowReached=False,
+            diagnostic=diagnostic,
+            amountsMatched=order.amounts_matched,paymentAmountsMatched=order.payment_amounts_matched,
+            amountLayout=order.amount_layout)
+        log('상태 인계 예외 - 재주문 없이 응답 조사. 종료하면 현재 감시 연결도 종료됨')
+        log('인계 진단(개인정보 제외): '+json.dumps(diagnostic,ensure_ascii=False))
+        if inspect_on_failure:
+            resumed=inspect_handoff(page,a,ledger,pl,binding,fare_response,order_response,run_id)
+            if resumed:return 0
+        return 2
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+def inspect_handoff(page,a,ledger,pl,binding,fare_response,order_response,run_id):
+    # 문맥과 응답은 원래 객체다. 새 주문·재조회 함수를 콜백에 전달하지 않는다.
+    can_offer=(binding is not None and getattr(binding,'used',True) is False)
+    result=recovery.inspect_failure(order_response,pl.quote,emit=log,
+        diagnose=lambda:connected_bridge.retained_report(binding,pl.order_request),
+        resume=(lambda:resume_retained_order(page,a,ledger,pl,binding,
+                                            fare_response,order_response,run_id)) if can_offer else None)
+    return result=='resumed'
 
 
 if __name__ == '__main__':

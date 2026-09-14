@@ -93,6 +93,8 @@ class Order:
     received: float
     segment_status: str | None = None  # 관측된 HK만 보존. 보유 의미는 미확정
     amounts_matched: bool = False      # 응답에 금액이 없으면 False로 남는다
+    payment_amounts_matched: bool = False
+    amount_layout: str = 'unverified'
 
 
 @dataclass(frozen=True)
@@ -111,7 +113,8 @@ _ERROR_KEYS = ('error','errors','code','errorCode','errorList','resultCode',
                'errorMessage','responseCode','responseMessage')
 
 
-def judge(request, status, payload, *, quote, target, session, subject, now):
+def judge(request, status, payload, *, quote, target, session, subject, now,
+          allow_observed_amount_layout=False):
     """A4c inputTravellers 응답 판정. 전송·A1 상태 변경·영속 저장은 하지 않는다.
 
     주문을 만드는 요청이므로 '실패'와 '불명'을 구분한다. 어떤 상태도 주문
@@ -173,6 +176,8 @@ def judge(request, status, payload, *, quote, target, session, subject, now):
         return Outcome('target-mismatch')
     # 금액은 이 응답에서 관측된 적이 없다. 있으면 대조하고, 없으면 미확인으로 남긴다.
     matched = False
+    payment_matched = False
+    amount_layout = 'unverified'
     fare = payload.get('pnrFareInfo')
     if fare is not None:
         if type(fare) is not dict or fare.get('currency') != target.currency:
@@ -180,9 +185,18 @@ def judge(request, status, payload, *, quote, target, session, subject, now):
         amount, total, mileage = (money(fare.get(k)) for k in ('amount','totalAmount','mileage'))
         if None in (amount, total, mileage):
             return Outcome('invalid-amounts')
-        if (amount, total, mileage) != (quote.amount, quote.total_amount, quote.mileage):
+        # 9/14 ICN-CDG 일반석 실측: 운임 amount=0, 주문 amount=totalAmount.
+        # 결제 모듈 NR은 totalAmount/mileage를 사용한다. 새 금액으로 덮어쓰지 않는다.
+        matched = (amount, total, mileage) == (quote.amount, quote.total_amount, quote.mileage)
+        payment_matched = (total, mileage) == (quote.total_amount, quote.mileage)
+        observed_layout = (allow_observed_amount_layout is True
+            and (target.origin,target.destination,target.carrier,target.flight,
+                 target.family,target.currency)==('ICN','CDG','KE','901','KEBONUSEY','KRW')
+            and quote.amount == 0 and total > 0 and mileage > 0
+            and amount == total and payment_matched)
+        if not matched and not observed_layout:
             return Outcome('amount-mismatch')
-        matched = True
+        amount_layout = 'exact' if matched else 'observed-zero-to-total'
     reference = payload.get('pnr')
     if not isinstance(reference, str) or not reference.strip():
         # 주문이 만들어졌는데 번호를 못 읽었을 수 있다. 재전송으로 넘기지 않는다.
@@ -191,4 +205,5 @@ def judge(request, status, payload, *, quote, target, session, subject, now):
     observed = leg.get('status')
     observed = observed if observed == 'HK' else None
     return Outcome('order-recorded', Order(quote, subject, session, reference,
-                                           request.created, now, observed, matched))
+                                           request.created, now, observed, matched,
+                                           payment_matched, amount_layout))

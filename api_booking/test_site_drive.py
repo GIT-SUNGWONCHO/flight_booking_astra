@@ -106,6 +106,12 @@ class FakePage:
         self.after_confirm = {}        # 확인 뒤 부작용: {동의 id: (다른 동의 id, 상태)}
         self.deduct = (200, '{"ok": true}')   # 마일리지 적용 때 차감 API 응답. None 이면 응답 없음
 
+    def locator(self, selector):
+        # 이 단위 픽스처는 input만 제공한다. 실제 label 선택은 browser 시험에서 검사.
+        if selector != 'label[for="rad-naverpay"]':
+            raise AssertionError(selector)
+        return types.SimpleNamespace(count=lambda: 0)
+
     def expect_response(self, predicate, timeout=None):
         page = self
 

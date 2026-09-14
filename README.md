@@ -9,6 +9,7 @@
 | [API README §3~§6](api_booking/README.md#process) | 전체 처리 순서·클로드 개발 계획·시험/완료 조건 |
 | [FACTS](FACTS.md) | 관측·근거·해석 한계 |
 | [공통 설정](config/test_calendar.json) / [CALENDAR](CALENDAR.md) | 확정 일정 원본 / 생성본 |
+| [SESSION_HANDOFF](SESSION_HANDOFF.md) | 다른 세션에서 복원할 최소 읽기 순서와 최신 성공 명세 |
 
 <a id="new-session"></a>
 ## 1. 새 세션 시작

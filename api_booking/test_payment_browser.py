@@ -122,10 +122,17 @@ class PaymentBackHalfBrowserTest(unittest.TestCase):
         page = context.new_page()
         page.goto(SITE + '/booking/calendar-fare-bonus')
         self.logs = []
+        watch=None
+        if cfg.get('existing_guard'):
+            from bridge_guard import BridgeGuard
+            watch=BridgeGuard(context,page=page)
+            watch.start();self.addCleanup(watch.stop)
+            page.goto(site_drive.GATE);page.wait_for_timeout(800)
+            self.existing_watch=watch
         out = site_drive.payment_pass(page, flight='901', date='2027-09-07', mileage='35,000',
                                       reference='NEWREF', ordered_at=0.0, log=self.logs.append,
                                       wait_ms=800, destination='CDG', amount=325500, pace=0.05,
-                                      window_timeout_ms=4000)
+                                      window_timeout_ms=4000, navigate=watch is None, existing_watch=watch)
         return out, page, context
 
     def popup(self, context, page):
@@ -143,6 +150,15 @@ class PaymentBackHalfBrowserTest(unittest.TestCase):
         self.assertEqual(len(popups), 1)
         self.assertIsNone(popups[0].evaluate('() => window.__clicked'))   # 제공자 창 안에서는 누르지 않는다
         self.assertEqual([r for r in self.reached if r[0] == 'dpay.bluewalnut.co.kr'], [])
+
+    def test_existing_guard_avoids_second_gate_navigation_and_stays_active(self):
+        out,page,context=self.run_pass(existing_guard=True)
+        self.assertTrue(out['completed'],(out.get('stage'),self.logs))
+        self.assertIsNotNone(self.existing_watch.started)
+        gates=[r for r in self.reached if r[1].startswith('/payment/gate')]
+        self.assertEqual(len(gates),1)
+        self.assertEqual(len(self.popup(context,page)),1)
+        self.assertIsNone(self.popup(context,page)[0].evaluate('()=>window.__clicked'))
 
     def test_already_checked_agreement_stays_on(self):
         out, page, _ = self.run_pass(agree1_on=True)
