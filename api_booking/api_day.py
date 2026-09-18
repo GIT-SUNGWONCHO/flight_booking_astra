@@ -106,43 +106,14 @@ def browser(report, restart):
     return code == 0
 
 
-def ensure_krw(report, capture_iso):
-    """departure 화면에서 통화를 KRW 로 맞춘다. 사용자 스크립트를 넣어야 prepare_krw 가 돈다."""
-    from playwright.sync_api import sync_playwright
-    from prepare_currency import prepare_krw
-    js = (ROOT / 'userscript' / 'ke-award-macro.user.js').read_text(encoding='utf-8')
-    item = {'name': 'krw', 'code': 1}
-    report['steps'].append(item)
-    try:
-        with sync_playwright() as pw:
-            b = pw.chromium.connect_over_cdp(f'http://127.0.0.1:{PORT}', timeout=15000)
-            pages = [p for p in b.contexts[0].pages if '/booking/select-award-flight/departure' in p.url]
-            if not pages:
-                item['why'] = 'departure-page-missing'
-                return False
-            page = pages[0]
-            page.evaluate(js)
-            result = prepare_krw(page, capture_iso[5:], 60000)
-            item.update(code=0 if result.get('verified') else 1, result=result)
-            log(f'KRW: {result}')
-            return bool(result.get('verified'))
-    except Exception as exc:
-        item['why'] = f'{type(exc).__name__}: {str(exc)[:80]}'
-        log(f'KRW 준비 실패: {item["why"]}')
-        return False
-
-
 def prepare(report, a):
-    """로그인 → departure(캡처 날짜) → KRW → 달력(캡처 날짜). 성공하면 True."""
+    """로그인 → 달력(캡처 날짜). 성공하면 True.
+
+    KRW 는 여기서 맞추지 않는다. 9/19 실측으로 홈에서 새로 검색하면 USD 로 돌아가므로
+    live_order 의 캡처 통과가 운임 화면에서 직접 맞춘다(site_drive.capture_pass ensure_currency).
+    """
     base = [PY, str(ROOT / 'dev' / 'setup.py'), a.destination, '--from', a.origin,
             '--port', str(PORT), '--date', a.capture_iso]
-    code, verdict = run_step(report, 'setup-departure', base + ['--departure'])
-    if not (isinstance(verdict, dict) and verdict.get('ok')):
-        why = (verdict or {}).get('why', '') if isinstance(verdict, dict) else ''
-        log(f'departure 준비 실패: {why or code}')
-        return False
-    if not ensure_krw(report, a.capture_iso):
-        return False
     code, verdict = run_step(report, 'setup-calendar', base)
     if not (isinstance(verdict, dict) and verdict.get('ok')):
         log('달력 복귀 실패')

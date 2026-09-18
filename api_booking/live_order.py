@@ -634,7 +634,8 @@ def run(a, ledger, target, balance, fire_at, clock):
         log(f'{a.capture_date} {a.capture_cabin} 로 준비 통과를 시작한다(주문 요청은 차단)')
         record_intent(a.day, PREPARING, why='capture-pass')
         since = transport.begin_generation(page)
-        steps = site_drive.capture_pass(page, a.capture_date, cabin=a.capture_cabin, log=log)
+        steps = site_drive.capture_pass(page, a.capture_date, cabin=a.capture_cabin, log=log,
+                                        flight=a.flight, ensure_currency=ensure_krw)
         log(f'준비 통과 결과: {steps}')
         if not prep_counts_clean(a, ledger, steps):
             return 2
@@ -881,6 +882,20 @@ def observe_unopened(page, snap, a, ledger, clock):
         log(f'미개방 날짜 관측 {i + 1}/{a.observe_count}: {a.observe_date} 판정={state} '
             f'형태={json.dumps(entry["shape"], ensure_ascii=False)}')
     return out
+
+
+def ensure_krw(page):
+    """운임 화면에서 통화를 KRW 로 맞추고 확인한다. 사용자 스크립트(KE_UTIL)를 먼저 넣는다."""
+    try:
+        from prepare_currency import prepare_krw
+        page.evaluate((ROOT / 'userscript' / 'ke-award-macro.user.js').read_text(encoding='utf-8'))
+        target = page.evaluate("() => window.KE_UTIL?.searchedDate?.() || null")
+        result = prepare_krw(page, target, 60000)
+        log(f'  통화 준비: {result}')
+        return result.get('verified') is True
+    except Exception as exc:
+        log(f'  통화 KRW 준비 실패: {type(exc).__name__}: {str(exc)[:60]}')
+        return False
 
 
 def alert():

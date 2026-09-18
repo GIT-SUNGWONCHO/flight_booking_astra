@@ -96,18 +96,23 @@ def select_date(page, label, wait=2500):
     return hit
 
 
-def select_fare(page, cabin='일반석', wait=3000):
-    """항공편 화면에서 '항공편명 KE901 일반석 35,000 마일' 형태의 운임 셀을 고른다."""
-    box = page.evaluate("""(cab) => { let hit=null;
-      const re=new RegExp('^항공편명 KE\\\\d+ '+cab+' [\\\\d,]+ 마일(?: [1-9][0-9]* 석)?$');
+def select_fare(page, cabin='일반석', wait=3000, flight=None):
+    """항공편 화면에서 '항공편명 KE901 일반석 35,000 마일' 형태의 운임 셀을 고른다.
+
+    flight 를 주면 그 편명만 고른다(9/19: CDG→ICN 은 공동운항 KE5902 가 먼저 나온다).
+    셀이 화면 밖이면 좌표 클릭이 빈 곳을 누르므로 먼저 화면 가운데로 스크롤한다.
+    """
+    box = page.evaluate("""([cab, num]) => { let hit=null;
+      const re=new RegExp('^항공편명 KE'+(num||'\\\\d+')+' '+cab+' [\\\\d,]+ 마일(?: [1-9][0-9]* 석)?$');
       const deep=(root,d)=>{ if(!root||d>10||hit) return;
         for(const x of root.querySelectorAll('*')){
           const s=((x.getAttribute&&x.getAttribute('aria-label'))||x.textContent||'')
                     .trim().replace(/\\s+/g,' ');
           const r=x.getBoundingClientRect(); if(r.width<2||r.height<2) continue;
-          if(re.test(s)){ hit={x:r.left+r.width/2, y:r.top+r.height/2, label:s}; return; } }
+          if(re.test(s)){ x.scrollIntoView({block:'center'}); const q=x.getBoundingClientRect();
+            hit={x:q.left+q.width/2, y:q.top+q.height/2, label:s}; return; } }
         for(const x of root.querySelectorAll('*')) if(x.shadowRoot) deep(x.shadowRoot,d+1); };
-      deep(document,0); return hit; }""", cabin)
+      deep(document,0); return hit; }""", [cabin, flight])
     if box:
         page.mouse.click(box['x'], box['y'])
         page.wait_for_timeout(wait)
@@ -186,7 +191,7 @@ def capture_complete(steps):
 
 
 def capture_pass(page, date_label, *, cabin='일반석', log=print, clock=time.monotonic,
-                 settle_ms=7000):
+                 settle_ms=7000, flight=None, ensure_currency=None):
     """달력에서 시작해 승객·연락처 확인까지 통과시켜 3구간을 캡처하게 한다.
 
     통과하는 동안 사이트의 주문 요청은 네트워크에서 막는다. 페이지 안 후킹은 요청을
@@ -200,7 +205,7 @@ def capture_pass(page, date_label, *, cabin='일반석', log=print, clock=time.m
     watch = HandoffWatch(page.context, page=page, clock=clock)
     watch.start()
     try:
-        _capture_steps(page, date_label, cabin, log, steps, settle_ms)
+        _capture_steps(page, date_label, cabin, log, steps, settle_ms, flight, ensure_currency)
     except Exception as exc:  # noqa: BLE001
         steps['error'] = type(exc).__name__
         log(f'  준비 통과 중 예외: {steps["error"]}')
@@ -210,7 +215,8 @@ def capture_pass(page, date_label, *, cabin='일반석', log=print, clock=time.m
     return steps
 
 
-def _capture_steps(page, date_label, cabin, log, steps, settle_ms):
+def _capture_steps(page, date_label, cabin, log, steps, settle_ms, flight=None,
+                   ensure_currency=None):
     if 'calendar-fare-bonus' not in page.url:
         page.goto(CALENDAR, wait_until='load', timeout=60000)
         page.wait_for_timeout(settle_ms)
@@ -235,7 +241,13 @@ def _capture_steps(page, date_label, cabin, log, steps, settle_ms):
     log(f'  검색 → {page.url[-40:]}')
     if 'select-award-flight' not in page.url:
         return
-    steps['fare'] = bool(select_fare(page, cabin))
+    if ensure_currency is not None:
+        # 9/19 실측: 홈에서 새로 검색하면 통화가 USD 로 돌아간다. 캡처 통과 안에서 맞춘다.
+        steps['currency'] = bool(ensure_currency(page))
+        log(f'  통화 KRW 확인: {steps["currency"]}')
+        if not steps['currency']:
+            return
+    steps['fare'] = bool(select_fare(page, cabin, flight=flight))
     log(f'  운임 선택: {steps["fare"]}')
     steps['next'] = click_text(page, '^다음$', 12000)
     log(f'  다음 → {page.url[-40:]}')
