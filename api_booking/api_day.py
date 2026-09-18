@@ -155,10 +155,12 @@ def main():
     ap.add_argument('--pre-fire-ms', type=int, default=0)
     ap.add_argument('--not-open-shape', default='')
     ap.add_argument('--observe-date', default='')
-    ap.add_argument('--at', default='', help='live: 발사 시각 HH:MM:SS')
-    ap.add_argument('--health-at', default='', help='live: 세션 점검 시각 HH:MM:SS')
-    ap.add_argument('--capture-not-before', default='', help='live: 캡처를 이 시각 전에는 시작하지 않는다')
-    ap.add_argument('--reprep-cutoff', default='', help='live: 이 시각 뒤에는 다시 준비하지 않는다')
+    ap.add_argument('--at', default='', help='발사 시각 HH:MM:SS. live 필수, rehearsal 도 주면 실전과 같은 시각 흐름')
+    ap.add_argument('--health-at', default='', help='세션 점검 시각 HH:MM:SS(--at 과 함께)')
+    ap.add_argument('--capture-not-before', default='', help='캡처를 이 시각 전에는 시작하지 않는다')
+    ap.add_argument('--reprep-cutoff', default='', help='이 시각 뒤에는 다시 준비하지 않는다(--at 과 함께)')
+    ap.add_argument('--observer', action='store_true',
+                    help='계측 9233 체인(dev/observer_chain.py)을 별도 프로세스로 함께 띄운다. 실패해도 예매는 계속')
     ap.add_argument('--fire-in-min', type=float, default=20.0, help='rehearsal: 캡처 시작 뒤 발사까지(분)')
     ap.add_argument('--health-before-min', type=float, default=10.0, help='rehearsal: 발사 몇 분 전에 점검')
     ap.add_argument('--no-restart', action='store_true', help='live: Chrome 9232 재기동을 하지 않는다')
@@ -167,8 +169,14 @@ def main():
     if a.capture_iso == a.target_date:
         log('캡처 날짜는 목표와 다른 이미 열린 날짜여야 한다')
         return 2
-    if a.mode == 'live' and not (a.at and a.health_at and a.reprep_cutoff):
-        log('live 는 --at·--health-at·--reprep-cutoff 가 필요하다')
+    if a.mode == 'live' and not a.at:
+        log('live 는 --at 이 필요하다')
+        return 2
+    if a.at and not (a.health_at and a.reprep_cutoff):
+        log('--at 을 쓰면 --health-at·--reprep-cutoff 도 필요하다(실전과 같은 시각 흐름)')
+        return 2
+    if a.observer and not a.at:
+        log('--observer 는 --at 과 함께만 쓴다(계측 시각을 발사 시각에 맞춘다)')
         return 2
     if a.mode == 'live' and a.observe_date:
         log('live 에서는 관측 조회를 섞지 않는다')
@@ -198,6 +206,17 @@ def main():
             log(f'남은 live_order PID {pid} 종료(리허설 잔여 정리)')
             subprocess.run(['taskkill', '/PID', str(pid), '/T', '/F'], capture_output=True)
         report['killedLingering'] = left
+    if a.observer:
+        # 계측은 예매와 실패를 분리한다. 출력은 별도 로그로만 남기고 결과를 기다리지 않는다.
+        obs_log = OUT / f'observer-{run_id}.log'
+        obs_args = [PY, str(ROOT / 'dev' / 'observer_chain.py'), '--day', datetime.now(KST).date().isoformat(),
+                    '--target', a.target_date, '--origin', a.origin, '--destination', a.destination]
+        if a.mode == 'rehearsal':
+            obs_args += ['--rehearsal', '--at', a.at]
+        observer = subprocess.Popen(obs_args, cwd=ROOT, env=ENV, stdout=obs_log.open('w', encoding='utf-8'),
+                                    stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+        report['observer'] = {'pid': observer.pid, 'log': str(obs_log)}
+        log(f'계측 9233 체인 시작(PID {observer.pid}, 로그 {obs_log.name}) - 실패해도 예매는 계속')
     if not browser(report, restart=(a.mode == 'live' and not a.no_restart)):
         save(result='chrome-failed')
         return 2
@@ -215,7 +234,7 @@ def main():
                 continue
             save(result='prepare-failed')
             return 2
-        if a.mode == 'live':
+        if a.at:
             at = today_at(a.at)
             health = today_at(a.health_at)
             if a.capture_not_before:
