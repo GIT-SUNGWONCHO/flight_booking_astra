@@ -884,18 +884,42 @@ def observe_unopened(page, snap, a, ledger, clock):
     return out
 
 
-def ensure_krw(page):
-    """운임 화면에서 통화를 KRW 로 맞추고 확인한다. 사용자 스크립트(KE_UTIL)를 먼저 넣는다."""
+def ensure_krw(page, timeout_ms=20000):
+    """운임 화면 통화를 KRW 로. 'krw'(확인)·'bounced'(적용 뒤 달력으로 돌아감)·'failed'.
+
+    조작은 dev/prepare_currency.py 와 같은 실측 요소(#currencyBtn, #filter-currency 의 KRW
+    라벨, .filter__apply)만 쓴다. 달력으로 돌아간 경우의 재검색은 capture_pass 가 한다.
+    """
+    def krw():
+        try:
+            return 'KRW' in page.locator('#currencyBtn').inner_text(timeout=5000)
+        except Exception:
+            return False
     try:
-        from prepare_currency import prepare_krw
-        page.evaluate((ROOT / 'userscript' / 'ke-award-macro.user.js').read_text(encoding='utf-8'))
-        target = page.evaluate("() => window.KE_UTIL?.searchedDate?.() || null")
-        result = prepare_krw(page, target, 60000)
-        log(f'  통화 준비: {result}')
-        return result.get('verified') is True
+        if krw():
+            return 'krw'
+        page.locator('#currencyBtn').click(timeout=timeout_ms)
+        labels = page.locator('#filter-currency label').filter(has_text='KRW')
+        if labels.count() != 1:
+            log('  통화 목록에서 KRW 를 하나로 찾지 못했다')
+            return 'failed'
+        labels.click(timeout=timeout_ms)
+        page.locator('#filter-currency .filter__apply').click(timeout=timeout_ms)
+        try:
+            page.wait_for_function(
+                "() => location.pathname.includes('/booking/calendar-fare-bonus') || "
+                "(document.querySelector('#currencyBtn')?.innerText || '').includes('KRW')",
+                timeout=timeout_ms)
+        except Exception:
+            # 적용 뒤 문서가 바뀌면 대기 함수의 실행 문맥이 사라질 수 있다. 주소로 판정한다.
+            page.wait_for_timeout(3000)
+        if 'calendar-fare-bonus' in page.url:
+            page.wait_for_timeout(3000)
+            return 'bounced'
+        return 'krw' if krw() else 'failed'
     except Exception as exc:
         log(f'  통화 KRW 준비 실패: {type(exc).__name__}: {str(exc)[:60]}')
-        return False
+        return 'failed'
 
 
 def alert():

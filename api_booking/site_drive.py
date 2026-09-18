@@ -225,25 +225,21 @@ def _capture_steps(page, date_label, cabin, log, steps, settle_ms, flight=None,
     if not steps['calendar']:
         log(f'  달력 셀이 그려지지 않았다(셀 {drawn}개). 누르지 않고 멈춘다.')
         return
-    cell = select_date(page, date_label)
-    steps['date'] = bool(cell) and not (cell or {}).get('soldout')
-    log(f'  날짜 {date_label}: {cell} (셀 {drawn}개)')
-    if not steps['date']:
-        return
-    steps['search'] = False
-    for attempt in range(3):
-        click_text(page, '^검색$', 11000)
-        if 'select-award-flight' in page.url:
-            steps['search'] = True
-            break
-        log(f'  검색 {attempt+1}회차 이동 없음, 재시도')
-        page.wait_for_timeout(3000)
-    log(f'  검색 → {page.url[-40:]}')
-    if 'select-award-flight' not in page.url:
+    if not _date_and_search(page, date_label, log, steps, drawn):
         return
     if ensure_currency is not None:
-        # 9/19 실측: 홈에서 새로 검색하면 통화가 USD 로 돌아간다. 캡처 통과 안에서 맞춘다.
-        steps['currency'] = bool(ensure_currency(page))
+        # 9/19 실측: 홈에서 새로 검색하면 통화가 USD 로 돌아가고, KRW [적용]을 누르면
+        # 사이트가 달력으로 되돌아간다. 되돌아가면 같은 날짜로 다시 검색하고 통화만 재확인한다.
+        state = 'failed'
+        for _ in range(2):
+            state = ensure_currency(page)
+            log(f'  통화 준비: {state}')
+            if state != 'bounced':
+                break
+            drawn = wait_calendar(page)
+            if not _date_and_search(page, date_label, log, steps, drawn):
+                return
+        steps['currency'] = state == 'krw'
         log(f'  통화 KRW 확인: {steps["currency"]}')
         if not steps['currency']:
             return
@@ -256,6 +252,25 @@ def _capture_steps(page, date_label, cabin, log, steps, settle_ms, flight=None,
     steps['passenger'] = click_id(page, 'submit-passenger-ADT-0')
     steps['contact'] = click_id(page, 'submit-contact')
     log(f'  승객={steps["passenger"]} 연락처={steps["contact"]}')
+
+
+def _date_and_search(page, date_label, log, steps, drawn):
+    """달력에서 날짜를 고르고 [검색]으로 항공편 화면까지 간다. 성공하면 True."""
+    cell = select_date(page, date_label)
+    steps['date'] = bool(cell) and not (cell or {}).get('soldout')
+    log(f'  날짜 {date_label}: {cell} (셀 {drawn}개)')
+    if not steps['date']:
+        return False
+    steps['search'] = False
+    for attempt in range(3):
+        click_text(page, '^검색$', 11000)
+        if 'select-award-flight' in page.url:
+            steps['search'] = True
+            break
+        log(f'  검색 {attempt+1}회차 이동 없음, 재시도')
+        page.wait_for_timeout(3000)
+    log(f'  검색 → {page.url[-40:]}')
+    return 'select-award-flight' in page.url
 
 
 def read_gate_summary(page):
