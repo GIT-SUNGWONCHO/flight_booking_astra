@@ -122,7 +122,7 @@ def ensure_krw(report, capture_iso):
                 return False
             page = pages[0]
             page.evaluate(js)
-            result = prepare_krw(page, capture_iso, 60000)
+            result = prepare_krw(page, capture_iso[5:], 60000)
             item.update(code=0 if result.get('verified') else 1, result=result)
             log(f'KRW: {result}')
             return bool(result.get('verified'))

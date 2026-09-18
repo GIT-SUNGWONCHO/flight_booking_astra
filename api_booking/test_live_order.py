@@ -82,6 +82,7 @@ class FlowHarness(unittest.TestCase):
             (tmp / f'order-intent-{day}.json').write_text(json.dumps(intent), encoding='utf-8')
         calls = []
         page = types.SimpleNamespace(url=initial_url, evaluate=mock.Mock(return_value={}))
+        self.page = page
         ctx = types.SimpleNamespace(pages=[page])
         connect = mock.Mock(return_value=types.SimpleNamespace(contexts=[ctx]))
         pw = types.SimpleNamespace(chromium=types.SimpleNamespace(connect_over_cdp=connect))
@@ -259,9 +260,22 @@ class PrepAndFireFlowTests(FlowHarness):
 
     def test_leaving_the_calendar_before_fire_stops(self):
         # 검토 165a57e4 P2: 달력 복귀 뒤 셀이 사라지면 발사하지 않는다.
+        # 2026-09-19: 주문 전 무효는 재준비 코드(3)로 끝내 체인이 다시 준비하게 한다.
         code, _, calls, _ = self.run_main('--dry', on_calendar=False)
-        self.assertEqual(code, 2)
+        self.assertEqual(code, live_order.EXIT_REPREPARE)
         self.assertEqual(self.sends(calls), [])
+
+    def test_leaving_the_calendar_during_the_wait_asks_for_reprepare(self):
+        # 9/19 01:40 실측: 약 70분 방치된 9232 가 로그아웃되고 홈으로 돌아갔다.
+        def drift(clock):
+            if clock.t >= datetime(2099, 1, 1, 8, 50, tzinfo=live_order.KST):
+                self.page.url = 'https://www.koreanair.com/'
+
+        clock = FakeClock(datetime(2099, 1, 1, 8, 40, 0, tzinfo=live_order.KST), on_sleep=drift)
+        code, _, calls, intent = self.run_main('--at', '09:00:00', clock=clock)
+        self.assertEqual(code, live_order.EXIT_REPREPARE)
+        self.assertEqual(self.sends(calls), [])
+        self.assertNotEqual(intent, 'sending')
 
     def test_capture_from_another_origin_is_never_sent(self):
         code, _, calls, _ = self.run_main('--dry', snap=_caps(origin='https://other.example'))

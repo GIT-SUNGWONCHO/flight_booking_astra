@@ -730,7 +730,7 @@ def run(a, ledger, target, balance, fire_at, clock):
                     why = still_ready()
                     if why:
                         log(f'무장 전에 준비가 무효가 됐다({why}) - 중단. 다시 준비한다')
-                        return 2
+                        return EXIT_REPREPARE   # 주문 전: 체인이 재준비할 수 있다
                 time.sleep(0.5)
             # 발사 시각이 지난 뒤 확인된 무장은 늦은 실제 주문이 되므로 거부한다(9/13 검토 P2).
             if fire_at is not None and clock.now() >= fire_at:
@@ -771,7 +771,7 @@ def run(a, ledger, target, balance, fire_at, clock):
                     log(f'대기 {left:.0f}초 남음 · 준비 유지={why is None} · {page.url[-32:]}')
                     if why:
                         log(f'대기 중 준비가 무효가 됐다({why}) - 중단')
-                        return 2
+                        return EXIT_REPREPARE   # 주문 전: 체인이 재준비할 수 있다
                 elif not final_checked:
                     # 마지막 60초 안에 한 번 달력 셀까지 확인하고 시계를 캐시 없이 다시 잰다.
                     # 재측정이 실패하면 불확실성을 모르므로 선발사를 0으로 내린다.
@@ -779,7 +779,7 @@ def run(a, ledger, target, balance, fire_at, clock):
                     why = still_ready()
                     if why:
                         log(f'정각 전 마지막 확인에서 준비 무효({why}) - 중단')
-                        return 2
+                        return EXIT_REPREPARE   # 주문 전: 체인이 재준비할 수 있다
                     clock.measure('final')
                     if pre_fire and not clock.pre_fire_allowed():
                         log(f'마지막 시계 측정에서 불확실성 조건 미달 - 선발사 {pre_fire}ms → 0')
@@ -792,7 +792,7 @@ def run(a, ledger, target, balance, fire_at, clock):
                         continue
                     binding = make_binding(page, pl, a)
                     if binding is None:
-                        return 2
+                        return EXIT_REPREPARE   # 주문 전: 체인이 재준비할 수 있다
                 else:
                     time.sleep(max(0.0, left) + 0.001)
 
@@ -807,7 +807,7 @@ def run(a, ledger, target, balance, fire_at, clock):
         why = still_ready(full=fire_at is None)
         if why:
             log(f'발사 직전 준비 무효({why}) - 주문하지 않는다')
-            return 2
+            return EXIT_REPREPARE   # 주문 전: 체인이 재준비할 수 있다
         retry = OpenRetry(open_at=fire_at, clock=clock, max_retries=a.open_retry_max,
                           gap=a.open_retry_gap_ms / 1000.0, until=a.open_retry_until_ms / 1000.0)
         def checkpoint():
