@@ -35,6 +35,9 @@ def _caps(origin=SITE, age=0.0):
             live_order.ORDER: cap(live_order.ORDER, CAP_ORDER)}
 
 
+DEFAULT_CLOCK = {'ok': True, 'offset': 0.0, 'uncertainty': 0.01, 'source': 'test'}
+FAILED_CLOCK = {'ok': False, 'offset': 0.0, 'uncertainty': None, 'source': 'unmeasured-local-clock'}
+
 FULL_STEPS = {'calendar': True, 'date': True, 'search': True, 'fare': True, 'next': True,
               'passenger': True, 'contact': True,
               'orderRequests': {'seen': 1, 'blocked': 1, 'unblocked': 0},
@@ -65,7 +68,8 @@ class FlowHarness(unittest.TestCase):
 
     def run_main(self, *extra, intent=None, snap=None, steps=None, back=None,
                  on_calendar=True, capture_error=None, send_override=None, tmp=None,
-                 replies=None, mileage='100000', reuse=True, clock=None, initial_url=GATE_URL):
+                 replies=None, mileage='100000', reuse=True, clock=None, initial_url=GATE_URL,
+                 clock_states=None, send_hook=None):
         if tmp is None:
             tmp = Path(tempfile.mkdtemp())
             self.addCleanup(shutil.rmtree, tmp, True)
@@ -110,6 +114,10 @@ class FlowHarness(unittest.TestCase):
         def send(_page, cap, body=None):
             name = cap.path.rsplit('/', 1)[-1]
             calls.append('send:' + name + '@' + _page.url.rsplit('/', 1)[-1])
+            if send_hook:
+                hooked = send_hook(name, body)
+                if hooked is not None:
+                    return hooked
             if send_override and name in send_override:
                 return send_override[name]
             reply = {'awardAvailability': award_response(), 'fareInformation': fare_response(),
@@ -118,6 +126,14 @@ class FlowHarness(unittest.TestCase):
                     'body': reply if isinstance(reply, str) else json.dumps(reply)}
 
         self.logs = []
+        # NTP 는 부르지 않는다. 기본은 오프셋0·불확실성10ms 측정 성공.
+        states = list(clock_states or [])
+        self.clock_calls = []
+
+        def fake_measure():
+            self.clock_calls.append(clock.now())
+            state = states.pop(0) if states else DEFAULT_CLOCK
+            return dict(state, measuredAt=0)
         argv = ['live_order.py', '--date', '2027-09-09', '--capture-date', '09월 07일',
                 '--day', day, *(['--own-mileage', mileage] if mileage else []),
                 *(['--reuse-member-check'] if reuse else []), *extra]
@@ -134,6 +150,7 @@ class FlowHarness(unittest.TestCase):
                 mock.patch.object(live_order.site_drive, 'on_calendar', return_value=on_calendar), \
                 mock.patch.object(live_order.site_drive, 'return_to_calendar', back_to_calendar), \
                 mock.patch.object(live_order, 'datetime', clock), \
+                mock.patch.object(live_order, 'measure_clock', fake_measure), \
                 mock.patch.object(live_order.time, 'sleep', clock.sleep):
             code = live_order.main()
         return code, connect, calls, self.intent_state(day)
@@ -544,12 +561,259 @@ class LedgerTests(unittest.TestCase):
         ledger.add('prep', 'inputTravellers-blocked')
         ledger.add('fire', 'awardAvailability', 2)
         self.assertEqual(ledger.summary(), {'prep': {'inputTravellers-blocked': 1},
-                                            'fire': {'awardAvailability': 2}, 'handoff': {}})
+                                            'fire': {'awardAvailability': 2}, 'handoff': {},
+                                            'observe': {}})
 
     def test_invalid_entries_are_refused(self):
         ledger = live_order.Ledger()
         for args in (('other', 'x'), ('fire', 1), ('fire', 'x', True), ('fire', 'x', 1.0)):
             with self.assertRaises(ValueError):
                 ledger.add(*args)
+
+
+NOT_OPEN = {'code': 'ERT.10032'}
+EMPTY = {'emptyFare': True, 'currency': 'KRW'}
+
+
+def ok_json(payload):
+    return {'ok': True, 'status': 200, 'elapsedMs': 40.0, 'body': json.dumps(payload)}
+
+
+class OpenRetryTests(FlowHarness):
+    """P1: 시계 보정·시각 기준 재시도·선발사. 개방 09:00:00, 기본 불확실성 10ms.
+
+    재시도 판정은 응답 코드가 아니라 보낸 시각이다. 신뢰 경계(개방+불확실성) 전에 보낸 조회의
+    부정 응답은 전부 재시도하고, 경계 뒤에는 기존 판정을 신뢰한다(not-open 만 상한 안 재조회).
+    """
+    OPEN = datetime(2099, 1, 1, 9, 0, 0, tzinfo=live_order.KST)
+
+    def fire_with(self, award_replies, *extra, start=(8, 59, 58), clock_states=None,
+                  observe_reply=None):
+        replies = list(award_replies)
+        self.award_times = []
+        self.observe_times = []
+
+        def hook(name, body):
+            if name != 'awardAvailability':
+                return None
+            date = json.loads(body)['segmentList'][0]['departureDate']
+            if date != '20270909':
+                self.observe_times.append(self.clock.t)
+                return ok_json(observe_reply if observe_reply is not None else NOT_OPEN)
+            self.award_times.append(self.clock.t)
+            reply = replies.pop(0) if replies else NOT_OPEN
+            return ok_json(reply)
+        clock = FakeClock(datetime(2099, 1, 1, *start, tzinfo=live_order.KST))
+        return self.run_main(*extra, clock=clock, send_hook=hook, clock_states=clock_states)
+
+    def timing(self):
+        files = sorted(self.tmp.glob('fire-timing-2099-01-01-*.json'))
+        self.assertEqual(len(files), 1)
+        return json.loads(files[0].read_text(encoding='utf-8'))
+
+    def test_every_negative_before_the_boundary_is_retried_then_one_order(self):
+        # 선발사 500ms: 08:59:59.5 부터 150ms 간격. 네 번 모두 경계(09:00:00.010) 전 송신.
+        code, _, calls, intent = self.fire_with(
+            [NOT_OPEN, EMPTY, award_response(soldout=True), {'errorCode': 'E'}, award_response()],
+            '--at', '09:00:00', '--pre-fire-ms', '500')
+        self.assertEqual((code, intent), (0, 'ordered'))
+        self.assertEqual(self.sends(calls).count('send:inputTravellers@calendar-fare-bonus'), 1)
+        self.assertEqual(len(self.award_times), 5)
+        self.assertLess(self.award_times[0], self.OPEN)
+        t = self.timing()
+        self.assertEqual([x['reason'] for x in t['attempts']],
+                         ['before-trust-boundary'] * 4 + ['selected'])
+        self.assertEqual([x['verdict'] for x in t['attempts'][:3]],
+                         ['not-open', 'no-target', 'sold-out'])
+        self.assertEqual(t['preFireMs'], 500)
+        self.assertEqual(t['attempts'][0]['shape']['code'], 'ERT.10032')
+        self.assertEqual(t['attempts'][1]['shape']['emptyFare'], True)
+        self.assertIn("'awardAvailability-retry': 4", self.summary())
+
+    def test_negative_after_the_boundary_is_trusted(self):
+        # 선발사 0: 첫 조회 09:00:00.001(경계 전) 매진은 재시도, 두 번째(.151) 매진은 신뢰.
+        sold = award_response(soldout=True)
+        code, _, calls, intent = self.fire_with([sold, sold, award_response()], '--at', '09:00:00')
+        self.assertEqual(code, 2)
+        self.assertNotIn('send:inputTravellers@calendar-fare-bonus', calls)
+        self.assertEqual(len(self.award_times), 2)
+        self.assertGreaterEqual(self.award_times[0], self.OPEN)
+        self.assertEqual([x['reason'] for x in self.timing()['attempts']],
+                         ['before-trust-boundary', 'trusted-verdict'])
+        self.assertNotEqual(intent, 'sending')
+
+    def test_no_target_and_business_error_after_the_boundary_stop(self):
+        for reply in (EMPTY, {'errorCode': 'E'}):
+            with self.subTest(reply):
+                code, _, calls, _ = self.fire_with([reply, reply, award_response()],
+                                                   '--at', '09:00:00')
+                self.assertEqual((code, len(self.award_times)), (2, 2))
+
+    def test_not_open_after_the_boundary_keeps_polling_within_limits(self):
+        code, _, calls, intent = self.fire_with([NOT_OPEN] * 5 + [award_response()],
+                                                '--at', '09:00:00')
+        self.assertEqual((code, intent), (0, 'ordered'))
+        self.assertEqual(len(self.award_times), 6)
+        self.assertEqual([x['reason'] for x in self.timing()['attempts']][1:5], ['not-open'] * 4)
+
+    def test_retry_cap(self):
+        code, _, calls, _ = self.fire_with([], '--at', '09:00:00', '--open-retry-max', '2')
+        self.assertEqual((code, len(self.award_times)), (2, 3))
+        self.assertEqual(self.timing()['attempts'][-1]['reason'], 'retry-cap')
+        self.assertNotIn('send:inputTravellers@calendar-fare-bonus', calls)
+
+    def test_retry_deadline(self):
+        # 150ms 간격: .001 .151 .301 뒤 다음 송신(.451)이 마감(.400)을 넘는다.
+        code, _, _, _ = self.fire_with([], '--at', '09:00:00', '--open-retry-until-ms', '400')
+        self.assertEqual((code, len(self.award_times)), (2, 3))
+        self.assertEqual(self.timing()['attempts'][-1]['reason'], 'retry-deadline')
+
+    def test_gaps_are_sequential_not_bursts(self):
+        self.fire_with([NOT_OPEN] * 3 + [award_response()], '--at', '09:00:00')
+        gaps = [(b - a).total_seconds() for a, b in zip(self.award_times, self.award_times[1:])]
+        self.assertTrue(all(g >= 0.15 for g in gaps), gaps)
+
+    def test_immediate_fire_has_no_retry_window(self):
+        code, _, _, _ = self.fire_with([NOT_OPEN, award_response()], start=(8, 0, 0))
+        self.assertEqual((code, len(self.award_times)), (2, 1))
+        self.assertEqual(self.timing()['attempts'][0]['reason'], 'no-open-time')
+
+    def test_clock_offset_moves_the_local_fire_time(self):
+        # 기준시각이 로컬보다 2초 빠르면 로컬 08:59:58 에 보정 09:00:00 이 된다.
+        ahead = dict(DEFAULT_CLOCK, offset=2.0)
+        code, _, _, _ = self.fire_with([award_response()], '--at', '09:00:00',
+                                       start=(8, 59, 50), clock_states=[ahead, ahead])
+        self.assertEqual(code, 0)
+        local = self.award_times[0]
+        self.assertGreaterEqual(local, datetime(2099, 1, 1, 8, 59, 58, tzinfo=live_order.KST))
+        self.assertLess(local, datetime(2099, 1, 1, 8, 59, 58, 100000, tzinfo=live_order.KST))
+        self.assertEqual(self.timing()['clock']['offsetMs'], 2000.0)
+
+    def test_failed_clock_forbids_pre_fire(self):
+        code, _, _, _ = self.fire_with([award_response()], '--at', '09:00:00', '--pre-fire-ms', '500',
+                                       clock_states=[FAILED_CLOCK, FAILED_CLOCK])
+        self.assertEqual(code, 0)
+        self.assertGreaterEqual(self.award_times[0], self.OPEN)
+        t = self.timing()
+        self.assertEqual((t['preFireMs'], t['clock']['uncertaintyMs']), (0, None))
+        self.assertIn('선발사 금지', ' '.join(self.logs))
+
+    def test_failed_clock_widens_the_trust_boundary(self):
+        # 불확실성을 모르면 경계 여유는 --unmeasured-clock-margin-ms(기본 3초)다.
+        sold = award_response(soldout=True)
+        code, _, _, _ = self.fire_with([sold] * 3 + [award_response()], '--at', '09:00:00',
+                                       clock_states=[FAILED_CLOCK, FAILED_CLOCK])
+        self.assertEqual((code, len(self.award_times)), (0, 4))
+
+    def test_failed_final_measurement_drops_pre_fire(self):
+        code, _, _, _ = self.fire_with([award_response()], '--at', '09:00:00', '--pre-fire-ms', '500',
+                                       clock_states=[DEFAULT_CLOCK, FAILED_CLOCK])
+        self.assertEqual(code, 0)
+        self.assertGreaterEqual(self.award_times[0], self.OPEN)
+        self.assertEqual([m['label'] for m in self.timing()['clock']['measurements']],
+                         ['start', 'final'])
+        self.assertIn('선발사 500ms → 0', ' '.join(self.logs))
+
+    def test_large_uncertainty_forbids_pre_fire(self):
+        wide = dict(DEFAULT_CLOCK, uncertainty=0.2)
+        code, _, _, _ = self.fire_with([award_response()], '--at', '09:00:00', '--pre-fire-ms', '500',
+                                       clock_states=[wide, wide])
+        self.assertEqual(code, 0)
+        self.assertGreaterEqual(self.award_times[0], self.OPEN)
+
+    def test_final_measurement_bypasses_the_cache(self):
+        self.fire_with([award_response()], '--at', '09:00:00', start=(8, 58, 0))
+        self.assertEqual(len(self.clock_calls), 2)
+        self.assertGreaterEqual(self.clock_calls[1], datetime(2099, 1, 1, 8, 59, 0, tzinfo=live_order.KST))
+
+    def test_parameter_limits(self):
+        for extra in (('--at', '09:00:00', '--pre-fire-ms', '3001'), ('--pre-fire-ms', '100'),
+                      ('--at', '09:00:00', '--open-retry-max', '-1'),
+                      ('--observe-date', '2027-09-10', '--observe-count', '4'),
+                      ('--observe-date', '2027-09-09'),
+                      ('--at', '09:00:00', '--observe-date', '2027-09-10')):
+            with self.subTest(extra):
+                code, connect, _, _ = self.fire_with([award_response()], *extra)
+                self.assertEqual((code, connect.call_count), (2, 0))
+
+    def test_observe_unopened_date_records_shape_only(self):
+        code, _, calls, intent = self.fire_with(
+            [award_response()], '--observe-date', '2027-09-10', '--observe-count', '2',
+            start=(8, 0, 0))
+        self.assertEqual((code, intent), (0, 'ordered'))
+        self.assertEqual(len(self.observe_times), 2)
+        self.assertEqual(calls.count('send:fareInformation@calendar-fare-bonus'), 1)
+        t = self.timing()
+        self.assertEqual([o['verdict'] for o in t['observe']], ['not-open', 'not-open'])
+        self.assertEqual(t['observe'][0]['shape']['code'], 'ERT.10032')
+        self.assertIn("'observe': {'awardAvailability-attempt': 2}", self.summary())
+
+    def test_timing_evidence_has_no_identifiers(self):
+        self.fire_with([award_response(soldout=True), award_response()],
+                       '--at', '09:00:00', '--pre-fire-ms', '100')
+        raw = next(self.tmp.glob('fire-timing-*.json')).read_text(encoding='utf-8')
+        for secret in ('NEW-PR', 'NEW-F', 'NEW-EY', 'FAKE-TICKET', 'FAKEPNR'):
+            self.assertNotIn(secret, raw)
+        shape = json.loads(raw)['attempts'][0]['shape']
+        self.assertEqual(shape['targetFlight']['family'], {'soldout': True, 'seatCount': '3'})
+
+
+class ResponseShapeTests(unittest.TestCase):
+    TARGET = live_order.Target('2027-09-09', 'ICN', 'CDG', 'KEBONUSPR', 'KE', '901')
+
+    def test_free_text_codes_are_reduced_to_type(self):
+        shape = live_order.response_shape(
+            ok_json({'code': '고객님 정보 홍길동', 'errorMessage': 'x', 'currency': 'USD'}), self.TARGET)
+        self.assertEqual(shape['code'], '<str>')
+        self.assertTrue(shape['errorMessagePresent'])
+        self.assertEqual(shape['currency'], 'USD')
+
+    def test_non_json_and_transport_errors(self):
+        self.assertEqual(live_order.response_shape({'ok': True, 'status': 200, 'body': '<html>'},
+                                                   self.TARGET)['body'], 'not-json')
+        self.assertEqual(live_order.response_shape({'ok': False, 'error': 'origin-changed'},
+                                                   self.TARGET)['transportError'], 'origin-changed')
+
+
+class MeasureClockCacheTests(unittest.TestCase):
+    """runtime.measure_clock 의 30분 캐시: 1800초가 지나면 다시 잰다(09:00 발사 때 만료 확인)."""
+
+    def setUp(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        import runtime
+        self.runtime = runtime
+        patcher = mock.patch.dict('os.environ', {}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def measure(self, cached_age):
+        import os
+        now = datetime.now(live_order.KST).timestamp()
+        os.environ['KE_CLOCK'] = json.dumps({'ok': True, 'offset': 9.9, 'uncertainty': 0.01,
+                                             'source': 'cached', 'measuredAt': now - cached_age})
+        with mock.patch('ke_award.clock._query', return_value=(0.123, 0.02)) as query:
+            state = self.runtime.measure_clock()
+        return state, query.call_count
+
+    def test_fresh_cache_is_reused(self):
+        state, n = self.measure(100)
+        self.assertEqual((state['source'], n), ('cached', 0))
+
+    def test_expired_cache_is_measured_again(self):
+        # 08:20 준비 때 잰 값은 09:00(40분 뒤)에 만료되어 새로 잰다.
+        state, n = self.measure(40 * 60)
+        self.assertEqual(n, 2)
+        self.assertEqual(state['offset'], 0.123)
+
+    def test_fire_clock_always_bypasses_the_cache(self):
+        import os
+        os.environ['KE_CLOCK'] = json.dumps({'ok': True, 'offset': 9.9, 'uncertainty': 0.01,
+                                             'source': 'cached',
+                                             'measuredAt': datetime.now(live_order.KST).timestamp()})
+        clock = live_order.FireClock(3.0)
+        with mock.patch('ke_award.clock._query', return_value=(0.123, 0.02)) as query:
+            self.assertTrue(clock.measure('final'))
+        self.assertEqual((query.call_count, clock.offset, clock.uncertainty), (2, 0.123, 0.01))
+
 
 if __name__ == '__main__':unittest.main()

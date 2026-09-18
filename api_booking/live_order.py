@@ -19,10 +19,13 @@
 from __future__ import annotations
 import argparse
 import json
+import math
+import os
+import re
 from uuid import uuid4
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,7 +42,7 @@ import explicit_retry  # noqa: E402
 from evidence import order_amount_diagnostic  # noqa: E402
 from availability import Target  # noqa: E402
 from order_flow import Checks, Event, OrderFlow  # noqa: E402
-from runtime import KST  # noqa: E402
+from runtime import KST, measure_clock  # noqa: E402
 
 AVAIL = '/api/ap/booking/avail/awardAvailability'
 FARE = '/api/ap/booking/avail/fareInformation'
@@ -47,6 +50,12 @@ ORDER = '/api/ap/booking/traveller/inputTravellers'
 STATE = ROOT / 'dev-shots' / 'state'
 # 캡처 준비 등급 표기 → 운임 계열. 모르는 표기는 None 으로 두어 여정 불일치로 본다.
 CABIN_FAMILY = {'일반석': 'KEBONUSEY', '프레스티지': 'KEBONUSPR'}
+# 선발사는 NTP 불확실성이 이 값 이하로 측정됐을 때만 허용한다(초).
+CLOCK_MAX_UNCERTAINTY = 0.1
+PRE_FIRE_MAX_MS = 3000
+OBSERVE_MAX = 3
+# 증거에 남기는 응답 코드 형식. 이 형식이 아닌 값은 형(type)만 남긴다.
+CODE_FORMAT = re.compile(r'[A-Z]{2,8}[.\-_]?[A-Z0-9]{1,10}')
 
 
 def log(msg):
@@ -129,6 +138,22 @@ def main():
                                           '시작 때 이미 지났거나 무장이 늦으면 발사하지 않는다')
     ap.add_argument('--late-limit', type=float, default=permit.DEFAULT_LATE_LIMIT,
                     help='--at 뒤 발사 허용 지연(초). 대기에서 늦게 깨면 발사하지 않는다. 기본 3')
+    ap.add_argument('--pre-fire-ms', type=int, default=0,
+                    help=f'--at(개방 시각)보다 이만큼 먼저 조회를 보낸다. 기본 0. 상한 {PRE_FIRE_MAX_MS}. '
+                         'NTP 불확실성을 모르거나 100ms 초과면 0으로 강제. 리허설 측정값만 쓴다')
+    ap.add_argument('--open-retry-max', type=int, default=25,
+                    help='첫 조회 뒤 추가 조회 상한(회). 조회만 반복하고 주문은 1회뿐. 기본 25')
+    ap.add_argument('--open-retry-gap-ms', type=int, default=150,
+                    help='응답을 받은 뒤 다음 조회까지 간격(ms). 동시 요청 없음. 기본 150')
+    ap.add_argument('--open-retry-until-ms', type=int, default=8000,
+                    help='개방 시각 + 이 값(ms)이 지나면 새 조회를 보내지 않는다. 기본 8000')
+    ap.add_argument('--unmeasured-clock-margin-ms', type=int, default=3000,
+                    help='NTP 불확실성을 모를 때 재시도 신뢰 경계에 쓰는 여유(ms). 기본 3000')
+    ap.add_argument('--observe-date', default='',
+                    help='리허설용: 발사 전에 아직 안 열린 이 날짜(같은 노선·등급)로 조회만 보내 '
+                         '응답 형태를 증거에 남긴다. 운임·주문으로 넘어가지 않는다')
+    ap.add_argument('--observe-count', type=int, default=1,
+                    help=f'--observe-date 조회 횟수. 1초 간격, 상한 {OBSERVE_MAX}')
     ap.add_argument('--status', action='store_true',
                     help='--day 의 주문 의도·전송권 상태만 읽어 보여 준다. 브라우저·사이트 접속 없음')
     ap.add_argument('--dry', action='store_true',
@@ -228,7 +253,23 @@ def main():
     except ValueError as exc:
         log(f'실행일·발사 시각 형식 오류: {exc}')
         return 2
-    why = permit.start_check(day=a.day, now=datetime.now(KST), fire_at=fire_at)
+    if (not 0 <= a.pre_fire_ms <= PRE_FIRE_MAX_MS or a.open_retry_max < 0
+            or a.open_retry_gap_ms < 0 or a.open_retry_until_ms < 0
+            or a.unmeasured_clock_margin_ms < 0 or not 1 <= a.observe_count <= OBSERVE_MAX):
+        log(f'발사 파라미터 범위 오류: 선발사 0~{PRE_FIRE_MAX_MS}ms, 재시도 값은 0 이상, '
+            f'관측 1~{OBSERVE_MAX}회')
+        return 2
+    if a.pre_fire_ms and fire_at is None:
+        log('--pre-fire-ms 는 --at 과 함께만 쓴다')
+        return 2
+    if a.observe_date and (a.observe_date == a.date or (fire_at is not None and not a.dry)):
+        # 관측 조회는 리허설(즉시 발사·--dry) 전용이다. 09시 실전 대기에 섞지 않는다.
+        log('--observe-date 는 목표와 다른 날짜로, 즉시 발사 리허설 또는 --dry 에서만 쓴다')
+        return 2
+    clock = FireClock(a.unmeasured_clock_margin_ms / 1000.0)
+    clock.measure('start')
+    log(f'시계 보정(시작): {clock.describe()}')
+    why = permit.start_check(day=a.day, now=clock.now(), fire_at=fire_at)
     if why:
         log(f'시작 거부: {why} (실행일 {a.day}, 발사 {a.at or "즉시"})')
         return 2
@@ -245,7 +286,7 @@ def main():
         log('**--own-mileage 가 없다. 잔액 미확인으로 주문 단계에서 멈춘다(--dry 판정 확인용).**')
     ledger = Ledger()
     try:
-        return run(a, ledger, target, balance, fire_at)
+        return run(a, ledger, target, balance, fire_at, clock)
     finally:
         log(f'구간별 호출 수: {ledger.summary()}')
 
@@ -296,8 +337,9 @@ class Ledger:
     prep: 준비 중 사이트가 보낸 요청(주문 요청 차단/미차단 포함)
     fire: 이 실행기가 보낸 요청
     handoff: 인계 중 관찰한 요청 판정 수
+    observe: 리허설 관측 조회(--observe-date). 운임·주문으로 이어지지 않는다
     """
-    PHASES = ('prep', 'fire', 'handoff')
+    PHASES = ('prep', 'fire', 'handoff', 'observe')
 
     def __init__(self):
         self.counts = {phase: {} for phase in self.PHASES}
@@ -311,7 +353,188 @@ class Ledger:
         return {phase: dict(sorted(items.items())) for phase, items in self.counts.items()}
 
 
-def run(a, ledger, target, balance, fire_at):
+def _ms(seconds):
+    return None if seconds is None else round(seconds * 1000, 1)
+
+
+def _iso(moment):
+    return moment.isoformat(timespec='milliseconds')
+
+
+class FireClock:
+    """NTP 보정 시각. offset 은 기준시각-로컬(초)이며 OS 시계는 바꾸지 않는다.
+
+    measure 는 매번 runtime 의 30분 캐시(KE_CLOCK)를 비우고 새로 잰다. 측정이 실패하면
+    오프셋은 직전 성공값(없으면 0=로컬 시계)을 쓰되 불확실성을 모르는 것으로 두어
+    선발사를 금지한다.
+    """
+
+    def __init__(self, unmeasured_margin):
+        self.offset = 0.0
+        self.uncertainty = None
+        self.source = 'unmeasured-local-clock'
+        self.unmeasured_margin = unmeasured_margin
+        self.measurements = []
+
+    def measure(self, label):
+        os.environ.pop('KE_CLOCK', None)
+        try:
+            state = measure_clock()
+        except Exception:
+            state = {'ok': False}
+        unc = state.get('uncertainty')
+        off = state.get('offset')
+        ok = (state.get('ok') is True and type(unc) in (int, float) and type(off) in (int, float)
+              and math.isfinite(unc) and math.isfinite(off) and unc >= 0)
+        if ok:
+            self.offset, self.uncertainty, self.source = off, unc, str(state.get('source'))
+        else:
+            self.uncertainty = None
+        self.measurements.append({'label': label, 'ok': ok, 'at': _iso(datetime.now(KST)),
+                                  'offsetMs': _ms(off) if ok else None,
+                                  'uncertaintyMs': _ms(unc) if ok else None,
+                                  'source': str(state.get('source')) if ok else None})
+        return ok
+
+    def now(self):
+        return datetime.now(KST) + timedelta(seconds=self.offset)
+
+    def pre_fire_allowed(self):
+        return self.uncertainty is not None and self.uncertainty <= CLOCK_MAX_UNCERTAINTY
+
+    def margin(self):
+        """재시도 신뢰 경계 여유(초). 불확실성을 모르면 보수적 여유를 쓴다."""
+        return self.uncertainty if self.uncertainty is not None else self.unmeasured_margin
+
+    def describe(self):
+        if self.uncertainty is None:
+            return (f'불확실성 모름(측정 실패) · 오프셋 {self.offset * 1000:+.1f}ms · '
+                    f'선발사 금지 · 신뢰 경계 여유 {self.unmeasured_margin * 1000:.0f}ms')
+        return (f'오프셋 {self.offset * 1000:+.1f}ms · 불확실성 ±{self.uncertainty * 1000:.1f}ms · '
+                f'기준 {self.source} · 선발사 {"허용" if self.pre_fire_allowed() else "금지(불확실성 초과)"}')
+
+
+class OpenRetry:
+    """개방 직후 조회 재시도 판정. 응답 코드가 아니라 **보낸 시각**으로 판단한다.
+
+    - 개방 시각 + 시계 불확실성(신뢰 경계) 전에 보낸 조회의 selected 아닌 응답은 전부 재시도.
+      정각 전 부정 응답(no-target·business-error·sold-out 등)은 판정 근거가 아니다.
+    - 경계 뒤에 보낸 조회는 기존 판정을 신뢰한다. 단 not-open 은 판정 자체가 '아직 안 열림'
+      이므로 상한 안에서 재조회한다(서버 개방이 기준시각보다 늦는 경우 대비).
+    - 횟수·간격·마감 상한이 있고, 시도는 모두 기록한다. 재시도는 조회만이다.
+    """
+
+    def __init__(self, *, open_at, clock, max_retries, gap, until):
+        self.open_at = open_at
+        self.clock = clock
+        self.max_retries = max_retries
+        self.gap = gap
+        self.until = until
+        self.attempts = []
+
+    def boundary(self):
+        return None if self.open_at is None else self.open_at + timedelta(seconds=self.clock.margin())
+
+    def deadline(self):
+        return None if self.open_at is None else self.open_at + timedelta(seconds=self.until)
+
+    def decide(self, state, sent):
+        """(결정, 이유). 결정은 selected / retry / stop."""
+        if state == 'selected':
+            return 'selected', 'selected'
+        if self.open_at is None:
+            return 'stop', 'no-open-time'
+        if len(self.attempts) >= self.max_retries:   # 이번 시도 기록 전: 지금까지 추가 조회 수
+            return 'stop', 'retry-cap'
+        if self.clock.now() + timedelta(seconds=self.gap) > self.deadline():
+            return 'stop', 'retry-deadline'
+        if sent < self.boundary():
+            return 'retry', 'before-trust-boundary'
+        if state == 'not-open':
+            return 'retry', 'not-open'
+        return 'stop', 'trusted-verdict'
+
+    def record(self, **entry):
+        self.attempts.append(entry)
+
+
+def response_shape(result, target):
+    """조회 응답의 형태만 허용 목록으로 뽑는다. 식별자·토큰·본문 원문은 넣지 않는다."""
+    shape = {}
+    if type(result) is not dict:
+        return {'resultType': type(result).__name__}
+    shape['status'] = result.get('status') if type(result.get('status')) is int else None
+    if result.get('error'):
+        shape['transportError'] = str(result.get('error'))[:40]
+    body = result.get('body')
+    try:
+        payload = json.loads(body) if isinstance(body, str) else body
+    except (ValueError, TypeError):
+        return {**shape, 'body': 'not-json', 'bodyLength': len(body)}
+    if type(payload) is not dict:
+        return {**shape, 'bodyType': type(payload).__name__}
+    shape['keys'] = sorted(k for k in payload if isinstance(k, str))[:40]
+    for k in ('code', 'errorCode', 'resultCode', 'responseCode'):
+        if k in payload:
+            v = payload[k]
+            shape[k] = v if isinstance(v, str) and CODE_FORMAT.fullmatch(v) else f'<{type(v).__name__}>'
+    for k in ('error', 'errors', 'errorList', 'errorMessage', 'responseMessage', 'message'):
+        if payload.get(k) not in (None, '', [], {}):
+            shape[k + 'Present'] = True
+    if isinstance(payload.get('currency'), str) and re.fullmatch(r'[A-Z]{3}', payload['currency']):
+        shape['currency'] = payload['currency']
+    if type(payload.get('emptyFare')) is bool:
+        shape['emptyFare'] = payload['emptyFare']
+    bounds = payload.get('upsellBoundAvailList')
+    if type(bounds) is list:
+        shape['bounds'] = len(bounds)
+        flights = bounds[0].get('availFlightList') if bounds and type(bounds[0]) is dict else None
+        if type(flights) is list:
+            shape['flights'] = len(flights)
+            for flight in flights:
+                if type(flight) is not dict:
+                    continue
+                info = flight.get('flightInfoList')
+                leg = info[0] if type(info) is list and info and type(info[0]) is dict else {}
+                if leg.get('flightNumber') != target.flight:
+                    continue
+                fares = flight.get('commercialFareFamilyList')
+                fam = [f for f in fares if type(f) is dict and f.get('fareFamily') == target.family] \
+                    if type(fares) is list else []
+                shape['targetFlight'] = {
+                    'soldOut': flight.get('soldOut') if type(flight.get('soldOut')) is bool else None,
+                    'family': ({'soldout': fam[0].get('soldout') if type(fam[0].get('soldout')) is bool
+                                else None,
+                                'seatCount': fam[0].get('seatCount')
+                                if isinstance(fam[0].get('seatCount'), str)
+                                and re.fullmatch(r'\d{1,3}', fam[0]['seatCount']) else None}
+                               if fam else None)}
+                break
+    return shape
+
+
+def save_timing(a, timing_id, clock, retry, pre_fire, observe=None):
+    """발사 시각·조회 시도 증거. Git 제외 경로에만 쓴다. 실패해도 발사 흐름을 바꾸지 않는다."""
+    try:
+        permit.durable_json(STATE / f'fire-timing-{a.day}-{timing_id}.json', {
+            'timingId': timing_id, 'day': a.day, 'at': _iso(datetime.now(KST)),
+            'target': {'date': a.date, 'origin': a.origin, 'destination': a.destination,
+                       'flight': a.flight, 'family': a.family},
+            'clock': {'offsetMs': _ms(clock.offset), 'uncertaintyMs': _ms(clock.uncertainty),
+                      'source': clock.source, 'measurements': clock.measurements},
+            'preFireMs': pre_fire,
+            'openAt': _iso(retry.open_at) if retry and retry.open_at else None,
+            'trustBoundary': _iso(retry.boundary()) if retry and retry.open_at else None,
+            'retryDeadline': _iso(retry.deadline()) if retry and retry.open_at else None,
+            'retryLimits': {'maxRetries': a.open_retry_max, 'gapMs': a.open_retry_gap_ms,
+                            'untilMs': a.open_retry_until_ms},
+            'attempts': retry.attempts if retry else [],
+            'observe': observe or []})
+    except Exception:
+        log('발사 시각 증거 저장 실패 - 발사 흐름은 그대로')
+
+
+def run(a, ledger, target, balance, fire_at, clock):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as pw:
         browser = pw.chromium.connect_over_cdp(f'http://127.0.0.1:{a.port}', timeout=15000)
@@ -391,6 +614,12 @@ def run(a, ledger, target, balance, fire_at):
         else:
             log(f'시계 대조 불가: {skew}')
 
+        timing_id = uuid4().hex[:12]
+        observed = []
+        if a.observe_date:
+            observed = observe_unopened(page, snap, a, ledger, clock)
+            save_timing(a, timing_id, clock, None, 0, observe=observed)
+
         def still_ready(full=True):
             """발사 준비가 아직 유효한지. full 이면 달력 셀까지 읽는다(페이지 왕복 1회)."""
             gone = missing_captures(snap, a.capture_max_age, time.time())
@@ -410,7 +639,7 @@ def run(a, ledger, target, balance, fire_at):
             log('AGENTS: 실전 대기 시작은 사용자가 누른다. 프로그램이 대신 무장하지 않는다')
             last_check = time.monotonic()
             while not armed.exists():
-                if fire_at is not None and datetime.now(KST) >= fire_at:
+                if fire_at is not None and clock.now() >= fire_at:
                     log('발사 시각까지 무장되지 않았다 - 발사하지 않는다')
                     return 2
                 if time.monotonic() - last_check >= 5:
@@ -421,40 +650,53 @@ def run(a, ledger, target, balance, fire_at):
                         return 2
                 time.sleep(0.5)
             # 발사 시각이 지난 뒤 확인된 무장은 늦은 실제 주문이 되므로 거부한다(9/13 검토 P2).
-            if fire_at is not None and datetime.now(KST) >= fire_at:
+            if fire_at is not None and clock.now() >= fire_at:
                 log('발사 시각이 지난 뒤 무장이 확인됐다 - 발사하지 않는다')
                 return 2
             log('사용자 무장 확인. 발사 대기로 넘어간다')
 
+        # 선발사: 보정 시각 기준 개방 시각보다 pre_fire 만큼 먼저 첫 조회를 보낸다.
+        # 정각 전 부정 응답은 OpenRetry 가 시각으로 걸러 재조회한다. 불확실성을 모르면 0.
+        pre_fire = a.pre_fire_ms if clock.pre_fire_allowed() else 0
         if fire_at is not None:
-            wait = (fire_at - datetime.now(KST)).total_seconds()
-            log(f'{a.day} {a.at} 까지 {wait:.0f}초 대기. 이 프로세스를 내리면 메모리 캡처가 사라진다')
+            def launch_at():
+                return fire_at - timedelta(milliseconds=pre_fire)
+            wait = (launch_at() - clock.now()).total_seconds()
+            log(f'{a.day} {a.at} (선발사 {pre_fire}ms, 보정 시각) 까지 {wait:.0f}초 대기. '
+                '이 프로세스를 내리면 메모리 캡처가 사라진다')
             final_checked = False
             while True:
-                left = (fire_at - datetime.now(KST)).total_seconds()
-                # 정각 전에 쏘지 않는다. 미개방 응답이면 재시도 없이 끝나기 때문이다.
+                left = (launch_at() - clock.now()).total_seconds()
                 if left <= 0:
                     break
                 if left > 60:
                     time.sleep(min(60, left - 30))
-                    left = (fire_at - datetime.now(KST)).total_seconds()
+                    left = (launch_at() - clock.now()).total_seconds()
                     why = still_ready()
                     log(f'대기 {left:.0f}초 남음 · 준비 유지={why is None} · {page.url[-32:]}')
                     if why:
                         log(f'대기 중 준비가 무효가 됐다({why}) - 중단')
                         return 2
                 elif not final_checked:
-                    # 마지막 60초 안에 한 번 달력 셀까지 확인하고, 정각에는 가벼운 확인만 한다.
+                    # 마지막 60초 안에 한 번 달력 셀까지 확인하고 시계를 캐시 없이 다시 잰다.
+                    # 재측정이 실패하면 불확실성을 모르므로 선발사를 0으로 내린다.
                     final_checked = True
                     why = still_ready()
                     if why:
                         log(f'정각 전 마지막 확인에서 준비 무효({why}) - 중단')
                         return 2
+                    clock.measure('final')
+                    if pre_fire and not clock.pre_fire_allowed():
+                        log(f'마지막 시계 측정에서 불확실성 조건 미달 - 선발사 {pre_fire}ms → 0')
+                        pre_fire = 0
+                    log(f'시계 보정(최종): {clock.describe()} · 선발사 {pre_fire}ms')
                 else:
                     time.sleep(max(0.0, left) + 0.001)
 
         # 대기에서 늦게 깼거나(절전 등) 날짜가 바뀌었으면 발사하지 않는다.
-        why = permit.fire_check(day=a.day, now=datetime.now(KST), fire_at=fire_at,
+        why = permit.fire_check(day=a.day, now=clock.now(),
+                                fire_at=(fire_at - timedelta(milliseconds=pre_fire))
+                                if fire_at is not None else None,
                                 late_limit=a.late_limit)
         if why:
             log(f'발사 거부: {why}')
@@ -463,7 +705,17 @@ def run(a, ledger, target, balance, fire_at):
         if why:
             log(f'발사 직전 준비 무효({why}) - 주문하지 않는다')
             return 2
-        return fire(page, snap, a, ledger, pipeline.Pipeline(target, member=member, balance=balance))
+        retry = OpenRetry(open_at=fire_at, clock=clock, max_retries=a.open_retry_max,
+                          gap=a.open_retry_gap_ms / 1000.0, until=a.open_retry_until_ms / 1000.0)
+        def checkpoint():
+            save_timing(a, timing_id, clock, retry, pre_fire, observe=observed)
+        # 증거 파일은 주문 응답 뒤(결제 인계 전)와 종료 때 쓴다. 조회~주문 사이에는 쓰지 않는다.
+        try:
+            return fire(page, snap, a, ledger,
+                        pipeline.Pipeline(target, member=member, balance=balance), retry,
+                        checkpoint=checkpoint)
+        finally:
+            checkpoint()
 
 
 def prep_counts_clean(a, ledger, observed):
@@ -499,8 +751,42 @@ def send_counted(page, cap, ledger, name, body=None):
     return r
 
 
-def fire(page, snap, a, ledger, pl):
-    """메모리 캡처로 현재 문서에서 조회→운임→필수 검증→주문을 보낸다. 주문 뒤 인계는 옵션에 따른다."""
+def observe_unopened(page, snap, a, ledger, clock):
+    """리허설 부수 관측: 아직 안 열린 날짜로 조회만 보내 응답 형태를 남긴다. 운임·주문 없음."""
+    try:
+        target = Target(a.observe_date, a.origin, a.destination, a.family, a.carrier, a.flight)
+    except ValueError as exc:
+        log(f'관측 날짜가 올바르지 않다: {exc} - 관측 생략')
+        return [{'error': 'invalid-observe-target'}]
+    out = []
+    for i in range(a.observe_count):
+        if i:
+            time.sleep(1.0)
+        pl = pipeline.Pipeline(target, member=None, balance=None)
+        body, why = pl.award_body(snap[AVAIL].body, snap[AVAIL].headers)
+        if why:
+            out.append({'n': i + 1, 'error': why})
+            break
+        ledger.add('observe', 'awardAvailability-attempt')
+        sent = clock.now()
+        r = transport.send_request(page, snap[AVAIL], body=body)
+        received = clock.now()
+        state = pl.judge_award(r)
+        entry = {'n': i + 1, 'date': a.observe_date, 'sentAt': _iso(sent),
+                 'receivedAt': _iso(received),
+                 'elapsedMs': r.get('elapsedMs') if type(r) is dict else None,
+                 'verdict': state, 'shape': response_shape(r, target)}
+        out.append(entry)
+        log(f'미개방 날짜 관측 {i + 1}/{a.observe_count}: {a.observe_date} 판정={state} '
+            f'형태={json.dumps(entry["shape"], ensure_ascii=False)}')
+    return out
+
+
+def fire(page, snap, a, ledger, pl, retry, checkpoint=lambda: None):
+    """메모리 캡처로 현재 문서에서 조회→운임→필수 검증→주문을 보낸다. 주문 뒤 인계는 옵션에 따른다.
+
+    조회는 retry(OpenRetry)가 보낸 시각으로 재시도 여부를 정한다. 운임·주문은 재시도하지 않는다.
+    """
     binding=None
     if a.state_bridge:
         try:
@@ -513,17 +799,37 @@ def fire(page, snap, a, ledger, pl):
     log(f'T0 발사: {a.date} {a.carrier}{a.flight} {a.origin}-{a.destination} {a.family} '
         f'· 문서 {page.url[-40:]}')
 
-    body, why = pl.award_body(snap[AVAIL].body, snap[AVAIL].headers)
-    if why:
-        log(f'조회 본문 구성 실패: {why} - 주문하지 않는다')
-        return 2
-    r = send_counted(page, snap[AVAIL], ledger, 'awardAvailability', body=body)
-    state = pl.judge_award(r)
-    log(f'조회 status={r.get("status")} {r.get("elapsedMs",0):.0f}ms 판정={state} '
-        f'(+{time.monotonic()-t0:.3f}s)')
-    if state != 'selected':
-        log(f'조회 판정 {state} - 주문하지 않는다')
-        return 2
+    while True:
+        # 시도마다 새 조회 본문(새 세대)을 만든다. 이전 응답의 선택을 재사용하지 않는다.
+        body, why = pl.award_body(snap[AVAIL].body, snap[AVAIL].headers)
+        if why:
+            log(f'조회 본문 구성 실패: {why} - 주문하지 않는다')
+            return 2
+        sent = retry.clock.now()
+        r = send_counted(page, snap[AVAIL], ledger, 'awardAvailability', body=body)
+        received = retry.clock.now()
+        state = pl.judge_award(r)
+        decision, reason = retry.decide(state, sent)
+        n = len(retry.attempts) + 1
+        entry = {'n': n, 'sentAt': _iso(sent), 'receivedAt': _iso(received),
+                 'elapsedMs': r.get('elapsedMs') if type(r) is dict else None,
+                 'status': r.get('status') if type(r) is dict else None,
+                 'verdict': state, 'decision': decision, 'reason': reason}
+        if retry.open_at is not None:
+            entry['sentVsOpenMs'] = _ms((sent - retry.open_at).total_seconds())
+        if state != 'selected':
+            # 정각 전 응답이 실제로 무엇인지가 리허설·실전의 관측 대상이다. 형태만 남긴다.
+            entry['shape'] = response_shape(r, pl.target)
+        retry.record(**entry)
+        log(f'조회#{n} status={entry["status"]} {entry["elapsedMs"] or 0:.0f}ms 판정={state} '
+            f'→ {decision}({reason}) (+{time.monotonic()-t0:.3f}s)')
+        if decision == 'selected':
+            break
+        if decision == 'stop':
+            log(f'조회 판정 {state} ({reason}) - 주문하지 않는다')
+            return 2
+        ledger.add('fire', 'awardAvailability-retry')
+        time.sleep(retry.gap)
 
     fbody, why = pl.fare_body(snap[FARE].body, snap[FARE].headers)
     if why:
@@ -575,7 +881,8 @@ def fire(page, snap, a, ledger, pl):
     flow.prepare(Checks(target_matches=True, fare_is_current=True, session_matches=True,
                         required_checks_passed=True, no_unresolved_order=True, user_started=True))
     flow.advance(Event.RECORD_INTENT)
-    record_intent(a.day, 'sending', date=a.date, flight=a.flight, family=a.family, runId=run_id)
+    record_intent(a.day, 'sending', date=a.date, flight=a.flight, family=a.family, runId=run_id,
+                  awardAttempts=len(retry.attempts))
     flow.advance(Event.BEGIN_SEND)
     # 주문 본문은 캡처 원문을 그대로 보낸다. 구조 판정은 prepare_order 에서 끝났다.
     try:
@@ -606,6 +913,7 @@ def fire(page, snap, a, ledger, pl):
             recovery.inspect_failure(r3, pl.quote, emit=log)
         return 2
     save_order_judgment(run_id,outcome.state)
+    checkpoint()
     elapsed = response_received_mono - t0
     log(f'주문 status={r3.get("status")} {r3.get("elapsedMs",0):.0f}ms 판정={outcome.state} '
         f'(+{elapsed:.3f}s)')
