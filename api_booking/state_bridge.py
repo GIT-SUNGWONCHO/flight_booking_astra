@@ -13,6 +13,7 @@ import math
 import travellers
 
 KEYS = ('fareInformation', 'inputTravellers', 'resvStatus', 'keAirSearchCriteria')
+RESPONSE_MAX_AGE = 90
 
 
 @dataclass(frozen=True, repr=False)
@@ -33,8 +34,13 @@ def _object(raw):
     return value
 
 
-def validate_prepared_storage(storage, target):
-    """주문 전에도 확인 가능한 준비 상태. 불일치를 주문 뒤에 처음 발견하지 않는다."""
+def validate_prepared_storage(storage, target, search_date=None):
+    """주문 전에도 확인 가능한 준비 상태. 불일치를 주문 뒤에 처음 발견하지 않는다.
+
+    search_date: 이번 실행의 캡처(준비 통과) 날짜 YYYY-MM-DD. 09시 개방 전에는 목표 날짜를
+    달력에서 검색할 수 없으므로 검색조건 날짜가 목표 날짜 또는 **정확히 이 캡처 날짜**일 때만
+    통과시킨다(2026-09-19 사용자 결정). 검색조건 자체는 고쳐 쓰지 않는다.
+    """
     if type(storage) is not dict or set(storage) != set(KEYS):
         raise ValueError('missing-stores')
     states = {k: _object(storage[k]) for k in KEYS}
@@ -64,7 +70,8 @@ def validate_prepared_storage(storage, target):
         (target.origin=='ICN' and bound.get('originLocationCode')=='sel'
          and bound.get('originLocationAirportType')=='CTY'
          and bound.get('originLocationCountryCode')=='KR'))
-    if (parsed is None or parsed.date().isoformat() != target.date
+    allowed_dates = {target.date} | ({search_date} if isinstance(search_date, str) and search_date else set())
+    if (parsed is None or parsed.date().isoformat() not in allowed_dates
             or not origin_matches
             or bound.get('destinationLocationCode') != target.destination):
         raise ValueError('search-target-mismatch')
@@ -79,17 +86,18 @@ def validate_prepared_storage(storage, target):
 
 
 def build_patch(storage, *, request, quote, fare_response, order_response, now,
-                allow_observed_amount_layout=False):
+                allow_observed_amount_layout=False, search_date=None):
     """응답 계약을 재검증하고 두 저장 모델만 반환한다. 브라우저·서버에 접근하지 않는다."""
     if type(request) is not travellers.Request or type(quote) is not travellers.Quote:
         raise ValueError('missing-context')
     if not all(type(v) in (int, float) and math.isfinite(v)
                for v in (now, request.created, quote.received)):
         raise ValueError('invalid-time')
-    if not quote.received <= request.created <= now or now - request.created > 30:
+    # 09시 부하에서 주문 응답이 늦을 수 있어 30초→90초(2026-09-19). 로컬 신선도 정책이다.
+    if not quote.received <= request.created <= now or now - request.created > RESPONSE_MAX_AGE:
         raise ValueError('stale-response')
     target=quote.target
-    validate_prepared_storage(storage,target)
+    validate_prepared_storage(storage,target,search_date)
     responses = []
     for response in (fare_response, order_response):
         if (type(response) is not dict or response.get('ok') is not True

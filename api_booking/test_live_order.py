@@ -151,6 +151,7 @@ class FlowHarness(unittest.TestCase):
                 mock.patch.object(live_order.site_drive, 'return_to_calendar', back_to_calendar), \
                 mock.patch.object(live_order, 'datetime', clock), \
                 mock.patch.object(live_order, 'measure_clock', fake_measure), \
+                mock.patch.object(live_order, 'alert'), \
                 mock.patch.object(live_order.time, 'sleep', clock.sleep):
             code = live_order.main()
         return code, connect, calls, self.intent_state(day)
@@ -562,7 +563,7 @@ class LedgerTests(unittest.TestCase):
         ledger.add('fire', 'awardAvailability', 2)
         self.assertEqual(ledger.summary(), {'prep': {'inputTravellers-blocked': 1},
                                             'fire': {'awardAvailability': 2}, 'handoff': {},
-                                            'observe': {}})
+                                            'observe': {}, 'health': {}})
 
     def test_invalid_entries_are_refused(self):
         ledger = live_order.Ledger()
@@ -588,15 +589,20 @@ class OpenRetryTests(FlowHarness):
     OPEN = datetime(2099, 1, 1, 9, 0, 0, tzinfo=live_order.KST)
 
     def fire_with(self, award_replies, *extra, start=(8, 59, 58), clock_states=None,
-                  observe_reply=None):
+                  observe_reply=None, probe_replies=None):
         replies = list(award_replies)
         self.award_times = []
         self.observe_times = []
+        self.probe_times = []
 
         def hook(name, body):
             if name != 'awardAvailability':
                 return None
             date = json.loads(body)['segmentList'][0]['departureDate']
+            if date == '20270907' and probe_replies is not None:
+                self.probe_times.append(self.clock.t)
+                reply = probe_replies.pop(0) if len(probe_replies) > 1 else probe_replies[0]
+                return reply if 'status' in reply else ok_json(reply)
             if date != '20270909':
                 self.observe_times.append(self.clock.t)
                 return ok_json(observe_reply if observe_reply is not None else NOT_OPEN)
@@ -814,6 +820,115 @@ class MeasureClockCacheTests(unittest.TestCase):
         with mock.patch('ke_award.clock._query', return_value=(0.123, 0.02)) as query:
             self.assertTrue(clock.measure('final'))
         self.assertEqual((query.call_count, clock.offset, clock.uncertainty), (2, 0.123, 0.01))
+
+
+PROBE_OK = award_response(date='20270907112000')
+PROBE_USD = dict(award_response(date='20270907112000'), currency='USD')
+
+
+class ReadinessTests(OpenRetryTests):
+    """P2: 미개방 형태 대조·무장 점검·세션 점검. OpenRetryTests 의 하네스를 쓴다."""
+    CAPTURE = ('--capture-iso', '2027-09-07')
+
+    def test_not_open_shape_keeps_polling_after_the_boundary(self):
+        sig = self.tmp_file({'status': 200, 'emptyFare': True, 'keys': ['currency', 'emptyFare']})
+        code, _, _, intent = self.fire_with([EMPTY] * 4 + [award_response()], '--at', '09:00:00',
+                                            '--not-open-shape', str(sig))
+        self.assertEqual((code, intent), (0, 'ordered'))
+        self.assertEqual([x['reason'] for x in self.timing()['attempts']][1:4], ['not-open-shape'] * 3)
+
+    def test_not_open_shape_never_covers_sold_out_or_other_shapes(self):
+        sig = self.tmp_file({'status': 200, 'emptyFare': True, 'keys': ['currency', 'emptyFare']})
+        sold = award_response(soldout=True)
+        code, _, _, _ = self.fire_with([sold, sold], '--at', '09:00:00', '--not-open-shape', str(sig))
+        self.assertEqual((code, len(self.award_times)), (2, 2))
+        code, _, _, _ = self.fire_with([{'errorCode': 'E'}] * 2, '--at', '09:00:00',
+                                       '--not-open-shape', str(sig))
+        self.assertEqual((code, len(self.award_times)), (2, 2))
+
+    def test_bad_not_open_shape_file_is_refused(self):
+        code, connect, _, _ = self.fire_with([], '--at', '09:00:00',
+                                             '--not-open-shape', str(self.tmp_file({'x': 1})))
+        self.assertEqual((code, connect.call_count), (2, 0))
+
+    def test_arm_probe_passes_with_krw_and_target_flight(self):
+        code, _, _, intent = self.fire_with([award_response()], *self.CAPTURE, start=(8, 0, 0),
+                                            probe_replies=[PROBE_OK])
+        self.assertEqual((code, intent), (0, 'ordered'))
+        self.assertEqual(len(self.probe_times), 1)
+        self.assertIn("'health': {'arm-awardAvailability': 1}", self.summary())
+
+    def test_arm_probe_failures(self):
+        for reply, want in ((PROBE_USD, live_order.EXIT_REPREPARE),
+                            ({'ok': True, 'status': 401, 'body': ''}, live_order.EXIT_REPREPARE),
+                            ({'ok': False, 'error': 'TypeError'}, live_order.EXIT_REPREPARE),
+                            (award_response(date='20270907112000', flight='905'), 2)):
+            with self.subTest(want=want, reply=str(reply)[:40]):
+                code, _, calls, _ = self.fire_with([award_response()], *self.CAPTURE,
+                                                   start=(8, 0, 0), probe_replies=[reply])
+                self.assertEqual(code, want)
+                self.assertEqual(self.award_times, [])
+                self.assertNotIn('send:inputTravellers@calendar-fare-bonus', calls)
+
+    def test_health_check_runs_once_before_fire(self):
+        code, _, _, _ = self.fire_with([award_response()], *self.CAPTURE, '--at', '09:00:00',
+                                       '--health-at', '08:50:00', start=(8, 40, 0),
+                                       probe_replies=[PROBE_OK])
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.probe_times), 2)
+        health = self.probe_times[1]
+        self.assertGreaterEqual(health, datetime(2099, 1, 1, 8, 50, 0, tzinfo=live_order.KST))
+        self.assertLess(health, datetime(2099, 1, 1, 8, 51, 0, tzinfo=live_order.KST))
+
+    def test_health_failure_stops_before_fire_with_reprepare_code(self):
+        code, _, calls, intent = self.fire_with(
+            [award_response()], *self.CAPTURE, '--at', '09:00:00', '--health-at', '08:50:00',
+            start=(8, 40, 0), probe_replies=[PROBE_OK, {'ok': True, 'status': 401, 'body': ''}])
+        self.assertEqual(code, live_order.EXIT_REPREPARE)
+        self.assertEqual(self.award_times, [])
+        self.assertNotEqual(intent, 'sending')
+
+    def test_health_time_must_precede_fire(self):
+        for extra in (('--health-at', '08:50:00'), ('--at', '09:00:00', '--health-at', '09:00:00')):
+            code, connect, _, _ = self.fire_with([], *extra)
+            self.assertEqual((code, connect.call_count), (2, 0))
+
+    def test_capture_iso_must_match_the_label(self):
+        code, connect, _, _ = self.fire_with([], '--capture-iso', '2027-09-08')
+        self.assertEqual((code, connect.call_count), (2, 0))
+
+    def test_state_dir_cannot_be_the_live_folder(self):
+        live = str(live_order.ROOT / 'dev-shots' / 'state')
+        code, connect, _, _ = self.fire_with([], '--state-dir', live)
+        self.assertEqual((code, connect.call_count), (2, 0))
+
+    def test_rehearsal_state_dir_keeps_the_permit_out_of_the_live_folder(self):
+        rehearsal = self.make_tmp()
+        with mock.patch.object(live_order, 'STATE', live_order.STATE):
+            code, _, _, _ = self.fire_with([award_response()], '--state-dir', str(rehearsal),
+                                           start=(8, 0, 0))
+        self.assertEqual(code, 0)
+        self.assertTrue((rehearsal / 'order-permit.json').exists())
+        self.assertFalse((self.tmp / 'order-permit.json').exists())
+
+    def test_observe_is_allowed_with_at_only_for_rehearsal_state_dir(self):
+        rehearsal = self.make_tmp()
+        with mock.patch.object(live_order, 'STATE', live_order.STATE):
+            code, _, _, _ = self.fire_with([award_response()], '--at', '09:00:00',
+                                           '--observe-date', '2027-09-10',
+                                           '--state-dir', str(rehearsal))
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.observe_times), 1)
+
+    def make_tmp(self):
+        path = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, path, True)
+        return path
+
+    def tmp_file(self, data):
+        path = self.make_tmp() / 'shape.json'
+        path.write_text(json.dumps(data), encoding='utf-8')
+        return path
 
 
 if __name__ == '__main__':unittest.main()

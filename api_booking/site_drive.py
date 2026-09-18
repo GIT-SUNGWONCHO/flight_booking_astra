@@ -742,8 +742,11 @@ def payment_pass(page, *, flight, date, reference=None, ordered_at=None, mileage
         expected = payment_window.payment_provider(origin, destination)
     except ValueError:
         expected = None
-    if expected != 'npay':
-        log(f'  방향 {origin}-{destination} 의 결제수단은 이 단계가 다루지 않는다(Npay 전용).')
+    # ICN 도착(현대카드)은 결제수단 자동 선택을 검증하지 않았다(2026-09-19 사용자 결정):
+    # 동의·마일리지·주문 재판정까지만 하고 결제수단 선택 직전에 멈춰 사용자에게 넘긴다.
+    stop_before_method = expected == 'hyundai'
+    if expected not in ('npay', 'hyundai'):
+        log(f'  방향 {origin}-{destination} 의 결제수단은 이 단계가 다루지 않는다.')
         return {'navigated': False, 'matched': False, 'order': 'unsupported-provider',
                 'steps': {}, 'completed': False, 'stage': 'unsupported-provider'}
     if existing_watch is not None:
@@ -783,6 +786,16 @@ def payment_pass(page, *, flight, date, reference=None, ordered_at=None, mileage
         if not mileage_step['verified']:
             result['stage'] = f'mileage-{mileage_step["result"]}'
             log(f'  **마일리지 적용을 확인하지 못했다({mileage_step["result"]}). 결제하기로 가지 않는다.**')
+            return result
+        if stop_before_method:
+            again = watch.judge(reference, ordered_at)
+            result['orderBeforePayment'] = again.state
+            if not again.same_reference:
+                result['stage'] = 'order-changed-before-payment'
+                log(f'  **결제수단 직전 화면 주문 판정이 {again.state} 로 바뀌었다. 사용자 확인 필요.**')
+                return result
+            result.update(stage='user-payment-method', handedToUser=True)
+            log('  **동의·마일리지 확인 완료. 결제수단(한국발행 카드→현대카드)과 결제하기는 사용자가 한다.**')
             return result
         if _radio_checked(page, 'rad-naverpay') is not True:
             label=page.locator('label[for="rad-naverpay"]')

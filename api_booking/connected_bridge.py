@@ -63,9 +63,10 @@ class Binding:
     subject: str=field(repr=False)
     created: float
     used: bool=False
+    search_date: str|None=None
 
 
-def bind(page, *, session, subject, now=None):
+def bind(page, *, session, subject, now=None, search_date=None):
     if page.url!=site_drive.CALENDAR or not session or not subject:
         raise ValueError('invalid-start-context')
     stamp=_session_stamp(page)
@@ -74,7 +75,8 @@ def bind(page, *, session, subject, now=None):
       window[arg.mark]=arg.token;
       return Object.fromEntries(arg.keys.map(k=>[k,sessionStorage.getItem(k)]));
     }''',{'mark':MARK,'token':token,'keys':list(state_bridge.KEYS)})
-    return Binding(page,token,stamp,storage,session,subject,time.monotonic() if now is None else now)
+    return Binding(page,token,stamp,storage,session,subject,time.monotonic() if now is None else now,
+                   search_date=search_date)
 
 
 def preflight(binding, *, target, now=None):
@@ -99,7 +101,7 @@ def preflight(binding, *, target, now=None):
     }''',{'mark':MARK,'token':binding.document,'before':binding.storage})
     if result!='ready':
         raise ValueError(result if result in ('document-changed','storage-changed') else 'changed-context')
-    state_bridge.validate_prepared_storage(binding.storage,target)
+    state_bridge.validate_prepared_storage(binding.storage,target,binding.search_date)
     return True
 
 
@@ -171,7 +173,7 @@ def connect(binding, *, request, quote, fare_response, order_response, now=None,
         raise ValueError('session-changed')
     patch=state_bridge.build_patch(binding.storage,request=request,quote=quote,
         fare_response=fare_response,order_response=order_response,now=now,
-        allow_observed_amount_layout=allow_observed_amount_layout)
+        allow_observed_amount_layout=allow_observed_amount_layout,search_date=binding.search_date)
     reference=json.loads(order_response['body'])['pnr']
     model=json.loads(order_response['body'])
     request_fingerprint=pipeline.traveller_digest(request.body_json)

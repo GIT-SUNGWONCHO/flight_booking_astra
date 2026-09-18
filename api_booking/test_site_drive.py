@@ -464,9 +464,21 @@ class PaymentPassTests(unittest.TestCase):
 
     def test_other_direction_is_not_handled(self):
         ctx, page = self.gate()
-        out = self.run_pass(page, origin='CDG', destination='ICN')
+        out = self.run_pass(page, origin='CDG', destination='FCO')
         self.assertEqual(out['stage'], 'unsupported-provider')
         self.assertEqual((page.gotos, page.clicked), ([], []))
+
+    def test_icn_arrival_stops_before_payment_method_for_the_user(self):
+        # 2026-09-19 사용자 결정: 현대카드 방향은 동의·마일리지까지만 하고 결제수단 직전에 멈춘다.
+        ctx, page = self.gate()
+        out = self.run_pass(page, origin='CDG', destination='ICN')
+        self.assertEqual(out['stage'], 'user-payment-method')
+        self.assertTrue(out['handedToUser'])
+        self.assertFalse(out['completed'])
+        self.assertEqual(page.agree, {'btn-resv-agree-1': 'on', 'btn-resv-agree-3': 'on'})
+        self.assertNotIn('btn-payment', page.clicked)
+        self.assertNotIn('rad-naverpay', page.clicked)
+        self.assertEqual(self.window_calls, [])
 
     def test_card_pg_login_or_no_window_is_not_complete(self):
         for window in ({'ready': False, 'reason': 'unrecognized-payment-provider'},

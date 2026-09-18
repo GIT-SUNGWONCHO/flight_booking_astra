@@ -47,16 +47,17 @@ class ObservedLayoutTests(Fixture,unittest.TestCase):
             with self.subTest(key=key,value=value):
                 self.assertNotEqual(self.judge().state,'order-recorded')
 
-    def test_prestige_and_other_route_not_enabled_by_policy(self):
-        for target in (replace(self.quote.target,family='KEBONUSPR'),
-                       replace(self.quote.target,destination='FCO')):
-            with self.subTest(target=target):
-                self.quote=replace(self.quote,target=target)
-                data=json.loads(self.order['body'])
-                leg=data['boundList'][0]['segmentList'][0]
-                leg.update(fareFamily=target.family,arrivalAirport=target.destination)
-                self.order['body']=json.dumps(data)
-                self.assertEqual(self.judge().state,'amount-mismatch')
+    def test_prestige_target_enabled_by_2026_09_19_policy(self):
+        # 사용자 승인(2026-09-19): 노선·편·등급 고정을 이 실행의 목표로 일반화한다.
+        target=replace(self.quote.target,family='KEBONUSPR')
+        self.quote=replace(self.quote,target=target)
+        data=json.loads(self.order['body'])
+        data['boundList'][0]['segmentList'][0]['fareFamily']='KEBONUSPR'
+        self.order['body']=json.dumps(data)
+        verdict=self.judge()
+        self.assertEqual(verdict.state,'order-recorded')
+        self.assertEqual(verdict.order.amount_layout,'observed-zero-to-total')
+        self.assertEqual(self.judge(False).state,'amount-mismatch')
 
     def test_nonzero_original_amount_not_reinterpreted(self):
         self.quote=replace(self.quote,amount=Decimal(1))

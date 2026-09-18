@@ -54,6 +54,13 @@ CABIN_FAMILY = {'일반석': 'KEBONUSEY', '프레스티지': 'KEBONUSPR'}
 CLOCK_MAX_UNCERTAINTY = 0.1
 PRE_FIRE_MAX_MS = 3000
 OBSERVE_MAX = 3
+# 주문 전송 전에 준비가 무효가 된 경우의 종료 코드. 체인(api_day)은 이 코드에서만 재준비한다.
+EXIT_REPREPARE = 3
+# 무장 점검: 토큰이 발사 시각 + 이 초 이후까지 유효해야 한다.
+TOKEN_MARGIN = 300
+# 미개방 형태 대조에 쓰는 필드. 식별자는 없다.
+SHAPE_FIELDS = ('status', 'keys', 'code', 'errorCode', 'resultCode', 'responseCode',
+                'emptyFare', 'bounds', 'flights')
 # 증거에 남기는 응답 코드 형식. 이 형식이 아닌 값은 형(type)만 남긴다.
 CODE_FORMAT = re.compile(r'[A-Z]{2,8}[.\-_]?[A-Z0-9]{1,10}')
 
@@ -154,6 +161,16 @@ def main():
                          '응답 형태를 증거에 남긴다. 운임·주문으로 넘어가지 않는다')
     ap.add_argument('--observe-count', type=int, default=1,
                     help=f'--observe-date 조회 횟수. 1초 간격, 상한 {OBSERVE_MAX}')
+    ap.add_argument('--capture-iso', default='',
+                    help='--capture-date 와 같은 날짜의 YYYY-MM-DD. 무장 점검 조회와 상태 인계 검색조건 대조에 쓴다')
+    ap.add_argument('--state-dir', default='',
+                    help='리허설 전용 상태 폴더. 전송권·주문 의도·증거를 기본 폴더와 분리한다')
+    ap.add_argument('--not-open-shape', default='',
+                    help='리허설에서 관측한 미개방 응답 형태 JSON 파일. 신뢰 경계 뒤에도 이 형태와 '
+                         '같은 응답(매진 제외)은 미개방으로 보고 상한 안에서 재조회한다')
+    ap.add_argument('--health-at', default='',
+                    help='HH:MM:SS. 대기 중 이 시각에 세션 점검(토큰 만료·열린 날짜 조회·KRW·저장 상태). '
+                         f'실패하면 발사하지 않고 종료 코드 {EXIT_REPREPARE}(재준비 가능)로 끝낸다')
     ap.add_argument('--status', action='store_true',
                     help='--day 의 주문 의도·전송권 상태만 읽어 보여 준다. 브라우저·사이트 접속 없음')
     ap.add_argument('--dry', action='store_true',
@@ -196,15 +213,32 @@ def main():
     if a.day is None:
         a.day = datetime.now(KST).strftime('%Y-%m-%d')
 
+    global STATE
+    if a.state_dir:
+        # 리허설 전용 상태 폴더. 기본 폴더(실전 전송권·주문 의도)와 섞지 않는다.
+        custom = Path(a.state_dir).resolve()
+        if custom == (ROOT / 'dev-shots' / 'state').resolve():
+            log('--state-dir 는 기본 상태 폴더가 아닌 리허설 폴더여야 한다')
+            return 2
+        STATE = custom
+
     if a.status:
         return show_status(a.day)
 
+    if a.capture_iso:
+        if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', a.capture_iso) or \
+                a.capture_date != f'{a.capture_iso[5:7]}월 {a.capture_iso[8:10]}일':
+            log('--capture-iso 는 --capture-date 라벨과 같은 날짜(YYYY-MM-DD)여야 한다')
+            return 2
+
     if a.state_bridge:
+        # 2026-09-19 사용자 결정: 프레스티지·다른 캡처 날짜·예약 발사(--at)까지 넓힌다.
+        # 검색조건 날짜는 목표 또는 이번 캡처 날짜(--capture-iso)만 허용한다.
         expected_label=f'{a.date[5:7]}월 {a.date[8:10]}일'
         if (not a.continue_payment or not a.inspect_failure or a.gate_only or a.payment_only
-                or a.family!='KEBONUSEY' or a.capture_cabin!='일반석'
-                or a.capture_date!=expected_label or a.at):
-            log('상태 인계는 동일 날짜 일반석 즉시 리허설만 지원한다. continue-payment와 inspect-failure 필요')
+                or (a.capture_date != expected_label and not a.capture_iso)):
+            log('상태 인계에는 continue-payment·inspect-failure 가 필요하고, 캡처 날짜가 목표와 '
+                '다르면 --capture-iso 가 필요하다')
             return 2
 
     if a.payment_only:
@@ -262,10 +296,32 @@ def main():
     if a.pre_fire_ms and fire_at is None:
         log('--pre-fire-ms 는 --at 과 함께만 쓴다')
         return 2
-    if a.observe_date and (a.observe_date == a.date or (fire_at is not None and not a.dry)):
-        # 관측 조회는 리허설(즉시 발사·--dry) 전용이다. 09시 실전 대기에 섞지 않는다.
-        log('--observe-date 는 목표와 다른 날짜로, 즉시 발사 리허설 또는 --dry 에서만 쓴다')
+    if a.observe_date and (a.observe_date == a.date
+                           or (fire_at is not None and not a.dry and not a.state_dir)):
+        # 관측 조회는 리허설(즉시 발사·--dry·리허설 상태 폴더) 전용이다. 09시 실전에 섞지 않는다.
+        log('--observe-date 는 목표와 다른 날짜로, 리허설(--state-dir)·즉시 발사·--dry 에서만 쓴다')
         return 2
+    a.not_open_signature = None
+    if a.not_open_shape:
+        try:
+            raw = json.loads(Path(a.not_open_shape).read_text(encoding='utf-8'))
+            sig = {k: raw[k] for k in SHAPE_FIELDS if k in raw}
+        except (OSError, ValueError, TypeError):
+            sig = None
+        if not sig or 'status' not in sig:
+            log('--not-open-shape 파일을 읽지 못했거나 대조할 필드가 없다')
+            return 2
+        a.not_open_signature = sig
+        log(f'미개방 응답 형태(신뢰 경계 뒤에도 재조회): {json.dumps(sig, ensure_ascii=False)}')
+    try:
+        health_at = permit.parse_at(a.day, a.health_at, KST) if a.health_at else None
+    except ValueError:
+        log('--health-at 형식 오류')
+        return 2
+    if health_at is not None and (fire_at is None or health_at >= fire_at):
+        log('--health-at 은 --at 보다 이른 시각이어야 한다')
+        return 2
+    a.health_at_dt = health_at
     clock = FireClock(a.unmeasured_clock_margin_ms / 1000.0)
     clock.measure('start')
     log(f'시계 보정(시작): {clock.describe()}')
@@ -339,7 +395,7 @@ class Ledger:
     handoff: 인계 중 관찰한 요청 판정 수
     observe: 리허설 관측 조회(--observe-date). 운임·주문으로 이어지지 않는다
     """
-    PHASES = ('prep', 'fire', 'handoff', 'observe')
+    PHASES = ('prep', 'fire', 'handoff', 'observe', 'health')
 
     def __init__(self):
         self.counts = {phase: {} for phase in self.PHASES}
@@ -438,8 +494,11 @@ class OpenRetry:
     def deadline(self):
         return None if self.open_at is None else self.open_at + timedelta(seconds=self.until)
 
-    def decide(self, state, sent):
-        """(결정, 이유). 결정은 selected / retry / stop."""
+    def decide(self, state, sent, not_open_like=False):
+        """(결정, 이유). 결정은 selected / retry / stop.
+
+        not_open_like: 리허설에서 관측한 미개방 응답 형태와 같다(매진 판정은 제외하고 넘긴다).
+        """
         if state == 'selected':
             return 'selected', 'selected'
         if self.open_at is None:
@@ -452,6 +511,8 @@ class OpenRetry:
             return 'retry', 'before-trust-boundary'
         if state == 'not-open':
             return 'retry', 'not-open'
+        if not_open_like:
+            return 'retry', 'not-open-shape'
         return 'stop', 'trusted-verdict'
 
     def record(self, **entry):
@@ -491,6 +552,13 @@ def response_shape(result, target):
         flights = bounds[0].get('availFlightList') if bounds and type(bounds[0]) is dict else None
         if type(flights) is list:
             shape['flights'] = len(flights)
+            numbers = []
+            for flight in flights:
+                info = flight.get('flightInfoList') if type(flight) is dict else None
+                leg = info[0] if type(info) is list and info and type(info[0]) is dict else {}
+                if isinstance(leg.get('flightNumber'), str) and re.fullmatch(r'\d{1,4}', leg['flightNumber']):
+                    numbers.append(leg['flightNumber'])
+            shape['flightNumbers'] = numbers[:20]
             for flight in flights:
                 if type(flight) is not dict:
                     continue
@@ -511,6 +579,13 @@ def response_shape(result, target):
                                if fam else None)}
                 break
     return shape
+
+
+def shape_matches(shape, signature):
+    """관측된 미개방 형태의 모든 필드가 같을 때만 True. 서명이 없으면 False."""
+    if not signature or type(shape) is not dict:
+        return False
+    return all(shape.get(k) == v for k, v in signature.items())
 
 
 def save_timing(a, timing_id, clock, retry, pre_fire, observe=None):
@@ -620,6 +695,11 @@ def run(a, ledger, target, balance, fire_at, clock):
             observed = observe_unopened(page, snap, a, ledger, clock)
             save_timing(a, timing_id, clock, None, 0, observe=observed)
 
+        # 무장 점검: 09시에야 발견할 문제(세션·통화·편명·저장 상태)를 캡처 직후에 확인한다.
+        failed = readiness_check(page, snap, a, ledger, target, fire_at, 'arm')
+        if failed:
+            return failed
+
         def still_ready(full=True):
             """발사 준비가 아직 유효한지. full 이면 달력 셀까지 읽는다(페이지 왕복 1회)."""
             gone = missing_captures(snap, a.capture_max_age, time.time())
@@ -629,6 +709,9 @@ def run(a, ledger, target, balance, fire_at, clock):
                 return f'문서 오리진 변경: {page.url[:60]}'
             if 'calendar-fare-bonus' not in (page.url or ''):
                 return f'달력 조회 화면 이탈: {page.url[-40:]}'
+            if a.state_bridge and page.url != site_drive.CALENDAR:
+                # 인계 결속(bind)은 정확히 같은 주소만 받는다. 대기 중에 먼저 잡는다.
+                return f'달력 주소 불일치: {page.url[-40:]}'
             if full and not site_drive.on_calendar(page):
                 return '달력 셀이 보이지 않음'
             return None
@@ -658,6 +741,9 @@ def run(a, ledger, target, balance, fire_at, clock):
         # 선발사: 보정 시각 기준 개방 시각보다 pre_fire 만큼 먼저 첫 조회를 보낸다.
         # 정각 전 부정 응답은 OpenRetry 가 시각으로 걸러 재조회한다. 불확실성을 모르면 0.
         pre_fire = a.pre_fire_ms if clock.pre_fire_allowed() else 0
+        pl = pipeline.Pipeline(target, member=member, balance=balance)
+        binding = None
+        health_done = getattr(a, 'health_at_dt', None) is None
         if fire_at is not None:
             def launch_at():
                 return fire_at - timedelta(milliseconds=pre_fire)
@@ -669,8 +755,17 @@ def run(a, ledger, target, balance, fire_at, clock):
                 left = (launch_at() - clock.now()).total_seconds()
                 if left <= 0:
                     break
+                if not health_done and clock.now() >= a.health_at_dt:
+                    health_done = True
+                    failed = readiness_check(page, snap, a, ledger, target, fire_at, 'health')
+                    if failed:
+                        return failed
+                    continue
                 if left > 60:
-                    time.sleep(min(60, left - 30))
+                    nap = min(60, left - 30)
+                    if not health_done:
+                        nap = min(nap, max(0.5, (a.health_at_dt - clock.now()).total_seconds()))
+                    time.sleep(nap)
                     left = (launch_at() - clock.now()).total_seconds()
                     why = still_ready()
                     log(f'대기 {left:.0f}초 남음 · 준비 유지={why is None} · {page.url[-32:]}')
@@ -690,6 +785,14 @@ def run(a, ledger, target, balance, fire_at, clock):
                         log(f'마지막 시계 측정에서 불확실성 조건 미달 - 선발사 {pre_fire}ms → 0')
                         pre_fire = 0
                     log(f'시계 보정(최종): {clock.describe()} · 선발사 {pre_fire}ms')
+                elif a.state_bridge and binding is None:
+                    # 인계 결속(쿠키·저장값 읽기)을 발사 경로에서 빼 T-15초에 미리 잡는다.
+                    if left > 15:
+                        time.sleep(left - 15)
+                        continue
+                    binding = make_binding(page, pl, a)
+                    if binding is None:
+                        return 2
                 else:
                     time.sleep(max(0.0, left) + 0.001)
 
@@ -711,9 +814,7 @@ def run(a, ledger, target, balance, fire_at, clock):
             save_timing(a, timing_id, clock, retry, pre_fire, observe=observed)
         # 증거 파일은 주문 응답 뒤(결제 인계 전)와 종료 때 쓴다. 조회~주문 사이에는 쓰지 않는다.
         try:
-            return fire(page, snap, a, ledger,
-                        pipeline.Pipeline(target, member=member, balance=balance), retry,
-                        checkpoint=checkpoint)
+            return fire(page, snap, a, ledger, pl, retry, checkpoint=checkpoint, binding=binding)
         finally:
             checkpoint()
 
@@ -782,18 +883,103 @@ def observe_unopened(page, snap, a, ledger, clock):
     return out
 
 
-def fire(page, snap, a, ledger, pl, retry, checkpoint=lambda: None):
+def alert():
+    """사용자 차례를 소리로 알린다. 실패해도 흐름에 영향 없음."""
+    try:
+        import winsound
+        for _ in range(3):
+            winsound.Beep(1200, 300)
+    except Exception:
+        print('\a', end='', flush=True)
+
+
+def make_binding(page, pl, a):
+    """상태 인계 결속. 실패하면 None(주문 전이므로 발사하지 않는다)."""
+    try:
+        binding = connected_bridge.bind(page, session=pl.session, subject=pl.subject,
+                                        search_date=a.capture_iso or None)
+        connected_bridge.state_bridge.validate_prepared_storage(binding.storage, pl.target,
+                                                                a.capture_iso or None)
+        return binding
+    except Exception as exc:
+        log(f'상태 인계 준비 문맥 확인 실패({type(exc).__name__}: {str(exc)[:40]}) - API 발사하지 않음')
+        return None
+
+
+def readiness_check(page, snap, a, ledger, target, fire_at, label):
+    """무장·세션 점검. 문제가 없으면 None, 있으면 종료 코드.
+
+    EXIT_REPREPARE(3): 세션·통화·저장 상태 문제. 주문 전이므로 체인이 다시 준비할 수 있다.
+    2: 설정 문제(편명·노선 등). 다시 준비해도 같으므로 체인이 멈춘다.
+    조회는 이미 열린 캡처 날짜로만 보낸다(fetch 만 쓰므로 앱 저장값을 바꾸지 않는다).
+    """
+    report = {}
+    try:
+        from session_health import session_health
+        opening = (fire_at or datetime.now(KST)).timestamp()
+        health = session_health(page.context, opening)
+        report['token'] = {k: health.get(k) for k in ('known', 'secondsAfterOpen', 'reason')}
+        if health.get('known') and (health.get('secondsAfterOpen') or 0) < TOKEN_MARGIN:
+            log(f'[{label}] 로그인 토큰이 발사+{TOKEN_MARGIN}초 전에 만료된다 - 재준비 필요')
+            return EXIT_REPREPARE
+    except Exception as exc:
+        report['token'] = {'known': False, 'reason': type(exc).__name__}
+    if a.state_bridge and page.url != site_drive.CALENDAR:
+        log(f'[{label}] 달력 주소 불일치 - 재준비 필요')
+        return EXIT_REPREPARE
+    if a.state_bridge:
+        try:
+            storage = page.evaluate(
+                'keys => Object.fromEntries(keys.map(k => [k, sessionStorage.getItem(k)]))',
+                list(connected_bridge.state_bridge.KEYS))
+            connected_bridge.state_bridge.validate_prepared_storage(storage, target,
+                                                                    a.capture_iso or None)
+            report['storage'] = 'ready'
+        except Exception as exc:
+            log(f'[{label}] 사이트 저장 상태가 인계 조건과 다르다({str(exc)[:40]}) - 재준비 필요')
+            return EXIT_REPREPARE
+    if a.capture_iso:
+        family = CABIN_FAMILY.get(a.capture_cabin) or a.family
+        try:
+            probe_target = Target(a.capture_iso, a.origin, a.destination, family, a.carrier, a.flight)
+        except ValueError:
+            log(f'[{label}] 점검 목표 구성 실패 - 설정 확인 필요')
+            return 2
+        probe = pipeline.Pipeline(probe_target, member=None, balance=None)
+        body, why = probe.award_body(snap[AVAIL].body, snap[AVAIL].headers)
+        if why:
+            log(f'[{label}] 점검 조회 본문 구성 실패: {why}')
+            return 2
+        ledger.add('health', f'{label}-awardAvailability')
+        r = transport.send_request(page, snap[AVAIL], body=body)
+        state = probe.judge_award(r)
+        shape = response_shape(r, probe_target)
+        report['probe'] = {'verdict': state, 'status': shape.get('status'),
+                           'currency': shape.get('currency'),
+                           'flightNumbers': shape.get('flightNumbers')}
+        log(f'[{label}] 점검 조회({a.capture_iso}) 판정={state} 통화={shape.get("currency")} '
+            f'편={shape.get("flightNumbers")} 토큰={report["token"]}')
+        if state in ('session-expired', 'fetch-failed', 'http-error', 'invalid-json'):
+            return EXIT_REPREPARE
+        if shape.get('currency') != 'KRW':
+            log(f'[{label}] 조회 응답 통화가 KRW 가 아니다 - 재준비(KRW 설정) 필요')
+            return EXIT_REPREPARE
+        if state not in ('selected', 'sold-out', 'unverified-stock'):
+            log(f'[{label}] 열린 날짜 조회에서 목표 편 {a.carrier}{a.flight} 을 확인하지 못했다({state}) '
+                '- 편명·노선 설정 확인 필요')
+            return 2
+    log(f'[{label}] 점검 통과')
+    return None
+
+
+def fire(page, snap, a, ledger, pl, retry, checkpoint=lambda: None, binding=None):
     """메모리 캡처로 현재 문서에서 조회→운임→필수 검증→주문을 보낸다. 주문 뒤 인계는 옵션에 따른다.
 
     조회는 retry(OpenRetry)가 보낸 시각으로 재시도 여부를 정한다. 운임·주문은 재시도하지 않는다.
     """
-    binding=None
-    if a.state_bridge:
-        try:
-            binding=connected_bridge.bind(page, session=pl.session, subject=pl.subject)
-            connected_bridge.state_bridge.validate_prepared_storage(binding.storage,pl.target)
-        except Exception:
-            log('상태 인계 준비 문맥 확인 실패 - API 발사하지 않음')
+    if a.state_bridge and binding is None:
+        binding = make_binding(page, pl, a)
+        if binding is None:
             return 2
     t0 = time.monotonic()
     log(f'T0 발사: {a.date} {a.carrier}{a.flight} {a.origin}-{a.destination} {a.family} '
@@ -809,7 +995,10 @@ def fire(page, snap, a, ledger, pl, retry, checkpoint=lambda: None):
         r = send_counted(page, snap[AVAIL], ledger, 'awardAvailability', body=body)
         received = retry.clock.now()
         state = pl.judge_award(r)
-        decision, reason = retry.decide(state, sent)
+        shape = response_shape(r, pl.target) if state != 'selected' else None
+        like = (state != 'sold-out' and shape is not None
+                and shape_matches(shape, getattr(a, 'not_open_signature', None)))
+        decision, reason = retry.decide(state, sent, not_open_like=like)
         n = len(retry.attempts) + 1
         entry = {'n': n, 'sentAt': _iso(sent), 'receivedAt': _iso(received),
                  'elapsedMs': r.get('elapsedMs') if type(r) is dict else None,
@@ -817,9 +1006,9 @@ def fire(page, snap, a, ledger, pl, retry, checkpoint=lambda: None):
                  'verdict': state, 'decision': decision, 'reason': reason}
         if retry.open_at is not None:
             entry['sentVsOpenMs'] = _ms((sent - retry.open_at).total_seconds())
-        if state != 'selected':
+        if shape is not None:
             # 정각 전 응답이 실제로 무엇인지가 리허설·실전의 관측 대상이다. 형태만 남긴다.
-            entry['shape'] = response_shape(r, pl.target)
+            entry['shape'] = shape
         retry.record(**entry)
         log(f'조회#{n} status={entry["status"]} {entry["elapsedMs"] or 0:.0f}ms 판정={state} '
             f'→ {decision}({reason}) (+{time.monotonic()-t0:.3f}s)')
@@ -997,7 +1186,7 @@ def resume_retained_order(page,a,ledger,pl,binding,fare_response,order_response,
     if not a.state_bridge or binding is None or binding.used or pl.order_request is None:
         return False
     age=time.monotonic()-pl.order_request.created
-    if not 0 <= age <= 30:
+    if not 0 <= age <= connected_bridge.state_bridge.RESPONSE_MAX_AGE:
         log('보존 응답의 인계 유효시간 초과. 시각을 갱신하거나 재주문하지 않음')
         return False
     outcome=pl.judge_order(order_response,allow_observed_amount_layout=True)
@@ -1044,6 +1233,15 @@ def bridged_payment(page, a, ledger, pl, binding, fare_response, order_response,
         log(f'상태 인계 결과: {stage}, 실제 결제창 완료={completed}')
         if result.get('diagnostic'):
             log('인계 진단(개인정보 제외): '+json.dumps(result['diagnostic'],ensure_ascii=False))
+        if stage=='user-payment-method':
+            # ICN 도착: 동의·마일리지까지 자동. 결제수단(현대카드)·결제하기는 사용자(2026-09-19 결정).
+            alert()
+            log('**[사용자 차례] 9232 게이트 화면에서 한국발행 신용/체크카드 → 현대카드 → 결제하기. '
+                '카드사 창의 최종 승인은 사용자가 판단한다.**')
+            return 0
+        if not completed:
+            alert()
+            log('**인계 미완료. 게이트 탭을 닫지 말고 화면을 확인한다. 재주문하지 않는다.**')
         if not completed and inspect_on_failure:
             resumed=inspect_handoff(page,a,ledger,pl,binding,fare_response,order_response,run_id)
             if resumed:return 0

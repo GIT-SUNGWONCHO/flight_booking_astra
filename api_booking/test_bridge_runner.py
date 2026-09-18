@@ -41,8 +41,11 @@ class RunnerTests(FlowHarness):
         (code,_,calls,_),_,_,_,_,inspect=self.run_bridge(payment_ok=False)
         self.assertEqual(code,2);inspect.assert_called_once()
         self.assertEqual(calls.count('send:inputTravellers@calendar-fare-bonus'),1)
-    def test_prestige_or_scheduled_mode_rejected_before_browser(self):
-        for extra in ((),('--family','KEBONUSEY','--capture-date','09월 09일','--at','09:00:00')):
+    def test_other_capture_date_needs_matching_capture_iso_before_browser(self):
+        # 2026-09-19: 프레스티지·예약 발사·다른 캡처 날짜는 허용. 단 캡처 날짜가 다르면
+        # --capture-iso 가 라벨과 같은 날짜로 있어야 한다.
+        for extra in ((),('--capture-iso','2027-09-08'),
+                      ('--capture-date','09월 09일','--capture-iso','2027-09-10')):
             code,connect,calls,_=self.run_main('--state-bridge','--continue-payment','--inspect-failure',*extra)
             self.assertEqual((code,connect.call_count,calls),(2,0,[]))
     def test_unready_stored_context_prevents_all_fire_requests(self):
@@ -52,8 +55,44 @@ class RunnerTests(FlowHarness):
                                side_effect=ValueError('unready-context')):
             code,_,calls,_=self.run_main('--state-bridge','--continue-payment','--inspect-failure',
                 '--family','KEBONUSEY','--capture-date','09월 09일',initial_url=CAL_URL)
-        self.assertEqual(code,2)
+        # 무장 점검이 캡처 직후 저장 상태를 먼저 걸러 재준비 코드로 끝낸다.
+        self.assertEqual(code,live_order.EXIT_REPREPARE)
         self.assertFalse(any(c.startswith('send:') for c in calls))
+
+    def test_scheduled_prestige_binds_before_fire_and_hands_icn_arrival_to_user(self):
+        # 2026-09-19: 프레스티지·다른 캡처 날짜·--at 허용. 결속은 T-15초에 미리 잡고,
+        # ICN 도착(현대카드)은 결제수단 직전 정지(user-payment-method)를 성공으로 끝낸다.
+        from datetime import datetime
+        from test_live_order import FakeClock
+        clock=FakeClock(datetime(2099,1,1,8,59,0,tzinfo=live_order.KST))
+        bound=[]
+        connection=types.SimpleNamespace(result={'matched':True,'sessionUnchanged':True,
+            'displayHints':{'date':True,'mileage':True,'krw':True},'stage':'same-order-reference'},
+            guard=object(),close=mock.Mock())
+        def bind(*_a,**kw):
+            bound.append((clock.t,kw.get('search_date')))
+            return types.SimpleNamespace(storage={})
+        with mock.patch.object(live_order.connected_bridge,'bind',side_effect=bind), \
+             mock.patch.object(live_order.connected_bridge.state_bridge,'validate_prepared_storage'), \
+             mock.patch.object(live_order.connected_bridge,'preflight',return_value=True), \
+             mock.patch.object(live_order.connected_bridge,'connect',return_value=connection), \
+             mock.patch.object(live_order.site_drive,'payment_pass',return_value={
+                 'completed':False,'stage':'user-payment-method','handedToUser':True}) as payment, \
+             mock.patch.object(live_order.recovery,'inspect_failure') as inspect:
+            code,_,calls,intent=self.run_main('--state-bridge','--continue-payment','--inspect-failure',
+                '--capture-iso','2027-09-07','--at','09:00:00',initial_url=CAL_URL,clock=clock,
+                send_hook=lambda name,body: None if name!='awardAvailability'
+                    or '20270909' in body else {'ok':True,'status':200,'elapsedMs':1.0,
+                    'body':__import__('json').dumps(__import__('test_pipeline').award_response(
+                        date='20270907112000'))})
+        self.assertEqual((code,intent),(0,'ordered'))
+        self.assertEqual(len(bound),1)
+        when,search=bound[0]
+        self.assertEqual(search,'2027-09-07')
+        self.assertGreaterEqual(when,datetime(2099,1,1,8,59,44,tzinfo=live_order.KST))
+        self.assertLess(when,datetime(2099,1,1,9,0,0,tzinfo=live_order.KST))
+        self.assertEqual(calls.count('send:inputTravellers@calendar-fare-bonus'),1)
+        payment.assert_called_once();inspect.assert_not_called()
 
     def test_failed_final_preflight_never_sends_order(self):
         with mock.patch.object(live_order.connected_bridge,'bind',return_value=types.SimpleNamespace(storage={})), \
@@ -94,7 +133,7 @@ class RetainedResumeTests(unittest.TestCase):
                 types.SimpleNamespace(order_request=types.SimpleNamespace(created=100.),
                                       judge_order=mock.Mock()))
     def test_expired_or_used_context_does_not_send_or_handoff(self):
-        for used,now in ((False,131.),(True,105.),(False,99.)):
+        for used,now in ((False,191.),(True,105.),(False,99.)):
             a,binding,pl=self.setup_context();binding.used=used
             with mock.patch.object(live_order.time,'monotonic',return_value=now), \
                  mock.patch.object(live_order,'send_counted') as send, \

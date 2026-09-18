@@ -58,7 +58,8 @@ class BridgeTests(Fixture, unittest.TestCase):
     def test_rejects_wrong_fare_ticket_and_stale_response(self):
         data=json.loads(self.fare['body']);data['pageTicket']='OTHER'
         with self.assertRaisesRegex(ValueError,'fare-context'):self.build(fare_response=ok(data))
-        for now in (102.,134.,float('nan')):
+        # 신선도 상한 90초(2026-09-19). 약 103초 생성 기준 200초는 만료.
+        for now in (102.,200.,float('nan')):
             with self.subTest(now=now),self.assertRaises(ValueError):self.build(now=now)
 
     def test_rejects_search_for_different_capture_date(self):
@@ -66,6 +67,19 @@ class BridgeTests(Fixture, unittest.TestCase):
         data['bounds'][0]['departureDateTime']='2027-09-07 00:00:00'
         s['keAirSearchCriteria']=json.dumps(data)
         with self.assertRaisesRegex(ValueError,'search-target'):self.build(storage=s)
+
+    def test_capture_date_search_is_allowed_only_for_that_exact_date(self):
+        # 2026-09-19: 09시 전에는 목표 날짜를 검색할 수 없어 캡처 날짜 검색조건을 허용한다.
+        s=dict(self.storage);data=json.loads(s['keAirSearchCriteria'])
+        data['bounds'][0]['departureDateTime']='2027-09-07 00:00:00'
+        s['keAirSearchCriteria']=json.dumps(data)
+        self.assertIsNotNone(self.build(storage=s,search_date='2027-09-07'))
+        with self.assertRaisesRegex(ValueError,'search-target'):
+            self.build(storage=s,search_date='2027-09-08')
+        target=self.quote.target
+        bridge.validate_prepared_storage(s,target,'2027-09-07')
+        with self.assertRaisesRegex(ValueError,'search-target'):
+            bridge.validate_prepared_storage(s,target)
 
     def test_observed_seoul_city_search_still_requires_icn_order(self):
         s=dict(self.storage);data=json.loads(s['keAirSearchCriteria'])

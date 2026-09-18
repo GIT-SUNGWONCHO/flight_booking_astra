@@ -189,9 +189,10 @@ def judge(request, status, payload, *, quote, target, session, subject, now,
         # 결제 모듈 NR은 totalAmount/mileage를 사용한다. 새 금액으로 덮어쓰지 않는다.
         matched = (amount, total, mileage) == (quote.amount, quote.total_amount, quote.mileage)
         payment_matched = (total, mileage) == (quote.total_amount, quote.mileage)
+        # 2026-09-19 사용자 승인: 노선·편·등급 고정(ICN-CDG-901-일반석)을 이 실행의 목표로
+        # 일반화한다. 운임 amount=0, 주문 amount=totalAmount, 총액·마일리지 일치 조건은 그대로.
         observed_layout = (allow_observed_amount_layout is True
-            and (target.origin,target.destination,target.carrier,target.flight,
-                 target.family,target.currency)==('ICN','CDG','KE','901','KEBONUSEY','KRW')
+            and target.currency == 'KRW'
             and quote.amount == 0 and total > 0 and mileage > 0
             and amount == total and payment_matched)
         if not matched and not observed_layout:
