@@ -13,7 +13,7 @@
   "bookingPort": 9232,
   "observerPort": 9233,
   "bookingStart": "user-arm",
-  "observer": {"gapMs": 1000, "maxInflight": 2, "maxStartDelayMs": 150, "uiReloadMs": 0, "confirmUiAfter": true},
+  "observer": {"gapMs": 300, "maxInflight": 4, "maxStartDelayMs": 150, "uiReloadMs": 0, "confirmUiAfter": true, "preMs": 3000, "postMs": 10000},
   "targets": [
     {"runDate": "2026-09-14", "origin": "ICN", "destination": "CDG", "departureDate": "2027-09-09"},
     {"runDate": "2026-09-25", "origin": "CDG", "destination": "ICN", "departureDate": "2027-09-20"}

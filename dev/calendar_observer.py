@@ -64,7 +64,8 @@ def run(a):
     if (a.at or a.target) and not a.rehearsal:
         raise ValueError('확정 일정을 바꾸려면 --rehearsal이 필요합니다')
     expected=p['observer']
-    if not a.rehearsal and (a.worker or a.gap_ms!=expected['gapMs'] or a.max_inflight!=expected['maxInflight'] or a.ui_reload_ms!=expected['uiReloadMs']):
+    if not a.rehearsal and (a.worker or a.gap_ms!=expected['gapMs'] or a.max_inflight!=expected['maxInflight'] or a.ui_reload_ms!=expected['uiReloadMs']
+                            or a.pre_ms!=expected.get('preMs',0) or a.post_ms!=expected.get('postMs',0)):
         raise ValueError('실전 계측 설정은 공통 캘린더 설정을 사용합니다. 변경 비교는 리허설에서만 허용합니다.')
     date.fromisoformat(target)
     if a.rehearsal:
@@ -136,24 +137,28 @@ def run(a):
             try:timing=BrowserTiming(helper,out)
             except Exception as e:report['timingError']=type(e).__name__
             report['stage']='목표 날짜 적용·계측 대기 구성';save()
-            start=opening.timestamp()*1000-offset*1000
+            # 2026-09-19 사용자 결정: 개방 -3초 ~ +10초를 300ms 간격으로 본다(공통 설정 preMs/postMs).
+            open_ms=opening.timestamp()*1000-offset*1000
+            start=open_ms-a.pre_ms
+            end=open_ms+a.post_ms if a.post_ms else start+a.seconds*1000
+            report.update(windowPreMs=a.pre_ms,windowPostMs=a.post_ms)
             if time.time()*1000>start+1000: raise ValueError('계측 시작 마감 초과')
             helper.evaluate('async (x)=>{window.sampler=x.worker?await ASTRA_CALENDAR.startWorker(x.config,x.source,x.script):ASTRA_CALENDAR.start(x.config,x.source)}',
                 {'config':{'origin':p['origin'],'destination':p['destination'],'target':target,
-                    'startAt':start,'endAt':start+a.seconds*1000,'gapMs':a.gap_ms,'maxInflight':a.max_inflight,
+                    'startAt':start,'endAt':end,'gapMs':a.gap_ms,'maxInflight':a.max_inflight,
                     'maxStartDelayMs':expected['maxStartDelayMs']},
                     'source':request,'worker':a.worker,'script':JS})
             page.bring_to_front()
             report.update(why='대기 중',prepared=True);save()
             print(f'{identity} 계측 준비: {p["origin"]}→{p["destination"]} {target}, {opening.isoformat()}',flush=True)
-            next_reload=start-p['leadMs'] if a.ui_reload_ms else float('inf');last_key=None;last_save=0;reload_pending=False;reload_deadline=0
-            while time.time()*1000<start+a.seconds*1000+6500:
+            next_reload=open_ms-p['leadMs'] if a.ui_reload_ms else float('inf');last_key=None;last_save=0;reload_pending=False;reload_deadline=0
+            while time.time()*1000<end+6500:
                 report['stage']='계측 대기/수집'
                 now=time.time()*1000
                 batch=helper.evaluate('sampler.drain()');events.extend(batch)
                 for e in batch:
                     if e.get('kind')=='response':
-                        print(f"표본 {e['id']}: {e['state']} P={e.get('p')} +{(e['receivedAt']-start)/1000:.3f}s",flush=True)
+                        print(f"표본 {e['id']}: {e['state']} P={e.get('p')} 개방{(e['sentAt']-open_ms)/1000:+.3f}s 송신 → {(e['receivedAt']-open_ms)/1000:+.3f}s 수신",flush=True)
                         try:
                             page.evaluate("""x=>{
                               let badge=document.getElementById('astra-observer-status');
@@ -163,7 +168,7 @@ def run(a):
                             }""",{'target':target,'value':('있음' if e['p'] else '없음') if e.get('state')=='valid' else e['state']})
                         except Exception:pass
                 # 로딩 중 연타하지 않는다. 보조 탭의 1초 요청은 화면 재로딩과 독립적이다.
-                if now>=next_reload and not reload_pending and now<start+a.seconds*1000:
+                if now>=next_reload and not reload_pending and now<end:
                     latest_ui['responseAt']=0;reload_pending=True;reload_deadline=now+15000
                     ui.append({'kind':'reload','at':now})
                     page.reload(wait_until='commit',timeout=10000)
@@ -252,4 +257,6 @@ if __name__=='__main__':
     ap.add_argument('--max-inflight',type=int,default=defaults['maxInflight'])
     ap.add_argument('--ui-reload-ms',type=int,default=defaults['uiReloadMs'],help='계측 중 화면 재로딩. 기본0: 계측 후에만 대조')
     ap.add_argument('--worker',action='store_true',help='화면 렌더링과 계측 타이머를 별도 Web Worker로 분리')
+    ap.add_argument('--pre-ms',type=int,default=defaults.get('preMs',0),help='개방 몇 ms 전부터 보낼지')
+    ap.add_argument('--post-ms',type=int,default=defaults.get('postMs',0),help='개방 몇 ms 뒤까지 보낼지. 0이면 --seconds')
     raise SystemExit(run(ap.parse_args()))
