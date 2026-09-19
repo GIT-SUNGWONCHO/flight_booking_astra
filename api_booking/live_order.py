@@ -832,6 +832,11 @@ def run(a, ledger, target, balance, fire_at, clock):
                     if pre_fire and not clock.pre_fire_allowed():
                         log(f'마지막 시계 측정에서 불확실성 조건 미달 - 선발사 {pre_fire}ms → 0')
                         pre_fire = 0
+                    elif a.pre_fire_ms and not pre_fire and clock.pre_fire_allowed():
+                        # 9/20 콜드: 시작 측정만 실패하고 최종 측정은 ±31ms 였는데 선발사가 0 으로 남았다.
+                        # 선발사 조건은 발사 직전(최종) 측정으로 판단한다.
+                        pre_fire = a.pre_fire_ms
+                        log(f'최종 시계 측정이 조건을 만족 - 선발사 {pre_fire}ms 복원')
                     log(f'시계 보정(최종): {clock.describe()} · 선발사 {pre_fire}ms')
                 elif a.state_bridge and binding is None:
                     # 인계 결속(쿠키·저장값 읽기)을 발사 경로에서 빼 T-15초에 미리 잡는다.
@@ -1139,6 +1144,8 @@ def fire(page, snap, a, ledger, pl, retry, checkpoint=lambda: None, binding=None
             connected_bridge.preflight(binding,target=pl.target)
         except Exception as exc:
             diagnostic=connected_bridge.error_summary(exc)
+            if diagnostic.get('reason')=='session-changed':
+                diagnostic['sessionDiff']=connected_bridge.session_diff(binding)
             ledger.add('fire','bridge-preflight-refused')
             log('주문 전 인계 점검 실패 - 주문 전송 없음: '+json.dumps(diagnostic,ensure_ascii=False))
             return 2

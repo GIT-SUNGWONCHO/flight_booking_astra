@@ -81,6 +81,28 @@ class ConnectedTests(Fixture,unittest.TestCase):
         self.assertEqual(hits,self.hits)
         self.assertNotIn('FAKE',json.dumps(report))
 
+    def test_akamai_and_token_refresh_do_not_change_identity(self):
+        # 2026-09-20 콜드: 조회·운임 뒤 _abck, 대기 중 T·t_sck 가 바뀌어 주문 전 점검이 막혔다.
+        for name in ('_abck','T','t_sck'):
+            self.assertIn(name,bridge.ROTATING_COOKIE_VALUES)
+        self.ctx.add_cookies([{'name':n,'value':'v1','url':bridge.ORIGIN} for n in ('_abck','T','t_sck')])
+        binding=bridge.bind(self.pg,session=self.quote.session,subject=self.request.subject,now=100.)
+        self.ctx.add_cookies([{'name':n,'value':'v2','url':bridge.ORIGIN} for n in ('_abck','T','t_sck')])
+        self.assertTrue(bridge.preflight(binding,target=self.quote.target,now=104.))
+
+    def test_session_diff_names_changed_cookies_without_values(self):
+        self.ctx.add_cookies([{'name':'fixture-session','value':'SECRETV1','url':bridge.ORIGIN}])
+        binding=bridge.bind(self.pg,session=self.quote.session,subject=self.request.subject,now=100.)
+        self.ctx.add_cookies([{'name':'fixture-session','value':'SECRETV2','url':bridge.ORIGIN},
+                              {'name':'fixture-new','value':'SECRETV3','url':bridge.ORIGIN}])
+        with self.assertRaisesRegex(ValueError,'session-changed'):
+            bridge.preflight(binding,target=self.quote.target,now=104.)
+        diff=bridge.session_diff(binding)
+        self.assertEqual(diff['changed'],['fixture-session'])
+        self.assertIn('fixture-new',diff['added'])
+        self.assertFalse(diff['memberChanged'])
+        self.assertNotIn('SECRET',json.dumps(diff))
+
     def test_other_cookie_change_and_rotating_cookie_removal_still_detected(self):
         self.ctx.add_cookies([{'name':'bm_s','value':'v1','url':bridge.ORIGIN}])
         before=bridge._session_stamp(self.pg)

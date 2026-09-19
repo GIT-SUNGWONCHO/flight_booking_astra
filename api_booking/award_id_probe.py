@@ -274,6 +274,8 @@ def main():
     p.add_argument('--fare-tests', action='store_true', help='2단계 운임 시험도 한다(주문 없음)')
     p.add_argument('--overlap-delays', default='',
                    help='같은 날짜 조회 두 개를 겹쳐 보낼 간격(ms) 목록(B 전제 시험)')
+    p.add_argument('--cookie-diff', action='store_true',
+                   help='달력 복귀 뒤 대기 15초·조회·운임 전후로 바뀐 쿠키 이름만 기록(인계 session-changed 조사)')
     p.add_argument('--timing-at', default='',
                    help='HH:MM:SS 기준 -4초~+10초 동안 조회→운임을 순차 반복해 소요 시간만 잰다(계측기 영향 비교)')
     p.add_argument('--gap', type=float, default=1.5)
@@ -307,7 +309,9 @@ def main():
             if AVAIL not in snap or (a.fare_tests and FARE not in snap):
                 log(f'캡처 부족: {report["captured"]} - 중단')
                 return finish(report, watch, 1)
-            if a.timing_at:
+            if a.cookie_diff:
+                cookie_diff(page, snap, a, tgt[dates[0]], report)
+            elif a.timing_at:
                 timing_loop(page, snap, a, tgt[dates[0]], report)
             else:
                 run(page, snap, a, dates, tgt, report)
@@ -548,6 +552,43 @@ def timing_loop(page, snap, a, target, report):
         report['timing']['awardMedianMs'] = statistics.median(r['awardMs'] for r in ok)
         report['timing']['fareMedianMs'] = statistics.median(r['fareMs'] for r in ok)
         log(f"중앙값 조회 {report['timing']['awardMedianMs']}ms 운임 {report['timing']['fareMedianMs']}ms")
+
+
+def _cookie_digest(page):
+    import hashlib
+    rows = page.context.cookies(['https://www.koreanair.com'])
+    out = {f"{c['name']}|{c['domain']}|{c['path']}": hashlib.sha256(c['value'].encode()).hexdigest()[:12]
+           for c in rows}
+    member = page.evaluate('()=>sessionStorage.getItem("loggedInUserInfo")') or ''
+    out['<sessionStorage.loggedInUserInfo>'] = hashlib.sha256(member.encode()).hexdigest()[:12]
+    return out
+
+
+def _changes(a, b):
+    return {'changed': sorted(k for k in a if k in b and a[k] != b[k]),
+            'added': sorted(k for k in b if k not in a), 'removed': sorted(k for k in a if k not in b)}
+
+
+def cookie_diff(page, snap, a, target, report):
+    """live_order 의 결속(T-15초)~주문 전 점검 구간을 흉내 낸다. 이름만 기록, 값·해시는 저장하지 않는다."""
+    page.goto(site_drive.CALENDAR, wait_until='load', timeout=60000)
+    page.wait_for_timeout(8000)
+    rounds = []
+    for n in range(3):
+        s0 = _cookie_digest(page)
+        page.wait_for_timeout(15000)
+        s1 = _cookie_digest(page)
+        meta, data = send_award(page, snap[AVAIL], target)
+        s2 = _cookie_digest(page)
+        ids = {(e['flightNumber'], e['family']): (e['recommendId'], e['flightId'])
+               for e in entries(data, target) if e['carrier'] == 'KE' and e['codeShare'] is False}
+        f = send_fare(page, snap[FARE], target, *ids[(a.flight, a.family)]) if (a.flight, a.family) in ids else {}
+        s3 = _cookie_digest(page)
+        row = {'idle15s': _changes(s0, s1), 'award': _changes(s1, s2), 'fare': _changes(s2, s3),
+               'awardVerdict': meta['verdict'], 'fareVerdict': f.get('verdict')}
+        rounds.append(row)
+        log(f'쿠키 변화 {n + 1}: {json.dumps(row, ensure_ascii=False)}')
+    report['cookieDiff'] = rounds
 
 
 def finish(report, watch, code):

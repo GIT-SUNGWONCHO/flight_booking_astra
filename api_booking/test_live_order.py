@@ -734,6 +734,16 @@ class OpenRetryTests(FlowHarness):
                          ['start', 'final'])
         self.assertIn('선발사 500ms → 0', ' '.join(self.logs))
 
+    def test_successful_final_measurement_restores_pre_fire(self):
+        # 2026-09-20 콜드: 시작 측정 실패·최종 측정 성공인데 선발사가 0 으로 남았다.
+        code, _, _, _ = self.fire_with([award_response()], '--at', '09:00:00', '--pre-fire-ms', '500',
+                                       clock_states=[FAILED_CLOCK, DEFAULT_CLOCK])
+        self.assertEqual(code, 0)
+        self.assertLess(self.award_times[0], self.OPEN)
+        self.assertGreaterEqual(self.award_times[0], self.OPEN - timedelta(milliseconds=500))
+        self.assertEqual(self.timing()['preFireMs'], 500)
+        self.assertIn('선발사 500ms 복원', ' '.join(self.logs))
+
     def test_large_uncertainty_forbids_pre_fire(self):
         wide = dict(DEFAULT_CLOCK, uncertainty=0.2)
         code, _, _, _ = self.fire_with([award_response()], '--at', '09:00:00', '--pre-fire-ms', '500',

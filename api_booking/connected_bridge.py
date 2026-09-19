@@ -22,7 +22,10 @@ MARK='__astraBridgeDocument'
 # 2026-09-14 bm_s/bm_sv는 달력 무조작 15초, 나머지 둘은 정상 UI 조회 중 회전 관측.
 # 삭제/설정/전송 변경을 하지 않는다. 존재 여부는 비교하고 회전하는 값만 제외한다.
 ROTATING_COOKIE_VALUES=frozenset(('bm_s','bm_sv',
-    'QueueITAccepted-SDFrts345E-V3_awards','_ga_YSSH8WPXW5'))
+    'QueueITAccepted-SDFrts345E-V3_awards','_ga_YSSH8WPXW5',
+    # 2026-09-20 콜드 테스트: 조회·운임 응답마다 `_abck`(Akamai) 값이 바뀌어 주문 전 점검이 session-changed 로
+    # 막혔다. 대기 중 로그인 토큰 `T`·`t_sck` 도 갱신됐고 loggedInUserInfo 는 같았다. 이름은 계속 대조한다.
+    '_abck','T','t_sck'))
 
 # 자체 검증 오류만 기록한다. 라이브러리 예외 문자열/URL/응답 원문은 기록하지 않는다.
 SAFE_ERRORS=frozenset(('invalid-or-used-binding','changed-context','session-changed',
@@ -41,6 +44,26 @@ def error_summary(exc):
             frames.append({'function':code.co_name,'line':tb.tb_lineno})
         tb=tb.tb_next
     return {'reason':reason,'valueError':type(exc) is ValueError,'frames':frames}
+
+
+def _cookie_names_digest(page):
+    """진단용: 쿠키 이름별 값 지문(메모리). 기록에는 바뀐 이름만 쓴다."""
+    return {f"{c['name']}|{c['domain']}|{c['path']}":hashlib.sha256(c['value'].encode()).hexdigest()
+            for c in page.context.cookies([ORIGIN])}
+
+
+def session_diff(binding):
+    """결속 뒤 바뀐 쿠키 이름·로그인 정보 변화(값 없음). 읽기 실패는 None."""
+    try:
+        now=_cookie_names_digest(binding.page)
+        before=binding.cookies or {}
+        member=binding.page.evaluate('()=>sessionStorage.getItem("loggedInUserInfo")')
+        return {'changed':sorted(k.split('|')[0] for k in before if k in now and before[k]!=now[k]),
+                'added':sorted(k.split('|')[0] for k in now if k not in before),
+                'removed':sorted(k.split('|')[0] for k in before if k not in now),
+                'memberChanged':hashlib.sha256(str(member).encode()).hexdigest()!=binding.member}
+    except Exception:
+        return None
 
 
 def _session_stamp(page):
@@ -64,6 +87,8 @@ class Binding:
     created: float
     used: bool=False
     search_date: str|None=None
+    cookies: dict|None=field(default=None,repr=False)
+    member: str|None=field(default=None,repr=False)
 
 
 def bind(page, *, session, subject, now=None, search_date=None):
@@ -75,8 +100,10 @@ def bind(page, *, session, subject, now=None, search_date=None):
       window[arg.mark]=arg.token;
       return Object.fromEntries(arg.keys.map(k=>[k,sessionStorage.getItem(k)]));
     }''',{'mark':MARK,'token':token,'keys':list(state_bridge.KEYS)})
+    member=page.evaluate('()=>sessionStorage.getItem("loggedInUserInfo")')
     return Binding(page,token,stamp,storage,session,subject,time.monotonic() if now is None else now,
-                   search_date=search_date)
+                   search_date=search_date,cookies=_cookie_names_digest(page),
+                   member=hashlib.sha256(str(member).encode()).hexdigest())
 
 
 def preflight(binding, *, target, now=None):
