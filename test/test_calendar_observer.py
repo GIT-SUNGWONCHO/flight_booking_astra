@@ -9,8 +9,14 @@ from calendar_observer import summarize
 from test_calendar import plan,KST,rehearsal_plan
 from playwright.sync_api import sync_playwright
 
-for day in ['2026-09-12','2026-09-13','2026-09-19','2026-09-20']:
+# 주말 실행은 켜져 있다(weekends=true). 출발일 일요일만 제외한다.
+for day in ['2026-09-17','2026-09-24']:
     assert not plan(day)['enabled']
+for day in ['2026-09-19','2026-09-20']:
+    assert plan(day)['enabled']
+assert plan('2026-09-20')['origin']=='FCO' and plan('2026-09-20')['flight']=='932'
+assert plan('2026-09-25')['origin']=='FCO' and plan('2026-09-25')['important']
+assert not plan('2026-09-18')['important']
 assert plan('2026-09-10')['origin']=='ICN'
 assert plan('2026-09-15')['origin']=='CDG'
 assert plan('2026-09-14')['departureDate']=='2027-09-09'

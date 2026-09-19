@@ -16,6 +16,11 @@
   "observer": {"gapMs": 300, "maxInflight": 4, "maxStartDelayMs": 150, "uiReloadMs": 0, "confirmUiAfter": true, "preMs": 3000, "postMs": 10000},
   "targets": [
     {"runDate": "2026-09-14", "origin": "ICN", "destination": "CDG", "departureDate": "2027-09-09"},
-    {"runDate": "2026-09-25", "origin": "CDG", "destination": "ICN", "departureDate": "2027-09-20"}
-  ]
+    {"runDate": "2026-09-18", "origin": "CDG", "destination": "ICN", "departureDate": "2027-09-13", "important": false, "note": "9/15~9/18 CDG→ICN 이력 보존용 구간 끝"},
+    {"runDate": "2026-09-25", "origin": "FCO", "destination": "ICN", "departureDate": "2027-09-20"}
+  ],
+  "weekdayRoutes": {"confirmedOn": "2026-09-19", "fromRunDate": "2026-09-19",
+    "note": "출발일 요일로 노선을 정한다. 월·수·토 FCO→ICN(KE932 운항일), 그 외 CDG→ICN(KE902). 일요일은 위 제외 규칙",
+    "rules": [{"weekdays": [0, 2, 5], "origin": "FCO", "destination": "ICN", "flight": "932"}],
+    "default": {"origin": "CDG", "destination": "ICN", "flight": "902"}}
 }

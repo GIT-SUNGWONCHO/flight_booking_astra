@@ -31,11 +31,19 @@ def plan(day: date | str):
         skip_reason = '사용자 확정: 출발일 ' + '월화수목금토일'[departure.weekday()] + '요일 테스트 제외'
     if day.isoformat() == target['runDate'] and departure.isoformat() != target['departureDate']:
         raise ValueError('중요 목표 출발일과 개방 규칙 불일치')
+    origin, destination, flight = target['origin'], target['destination'], target.get('flight')
+    routes = cfg.get('weekdayRoutes')
+    # 2026-09-19 사용자 확정: 이날부터는 출발일 요일로 노선을 정한다(월·수·토 FCO→ICN).
+    if routes and day >= date.fromisoformat(routes['fromRunDate']):
+        rule = next((r for r in routes['rules'] if departure.weekday() in r['weekdays']), routes['default'])
+        origin, destination, flight = rule['origin'], rule['destination'], rule.get('flight')
+        if day.isoformat() == target['runDate'] and (origin, destination) != (target['origin'], target['destination']):
+            raise ValueError('중요 목표 노선과 요일 규칙 불일치')
     return dict(runDate=day.isoformat(), enabled=active,
                 skipReason=skip_reason,
-                origin=target['origin'], destination=target['destination'],
+                origin=origin, destination=destination, flight=flight,
                 departureDate=departure.isoformat(), cabin=cfg['cabin'],
-                important=day.isoformat() == target['runDate'],
+                important=day.isoformat() == target['runDate'] and target.get('important', True),
                 openAt=f"{day}T{cfg['openTime']}+09:00", leadMs=cfg['leadMs'],
                 prepareAt=f"{day}T{cfg['prepareTime']}+09:00",
                 bookingPort=cfg['bookingPort'], observerPort=cfg['observerPort'],
@@ -66,14 +74,15 @@ def render():
              f"- 적용 기간: {cfg['start']} ~ {cfg['end']}. 아래 일별 구분에서 휴무 여부를 확인한다.",
              '- 실행일은 테스트하는 날, 출발일은 실제 여행일이다. 예매와 계측은 같은 계획을 읽고 독립 실행한다.',
              '- 실행일의 주말 휴무와 별도로, 출발일이 일요일인 테스트는 양방향 모두 제외한다(사용자 확정 일정 규칙이며 양방향 운항 중단을 검증했다는 뜻은 아니다).',
+             '- 2026-09-19부터 노선은 출발일 요일로 정한다: 월·수·토 FCO→ICN(KE932), 그 외 CDG→ICN(KE902). 9/25 중요 목표는 FCO→ICN.',
              '- 이 파일은 dev/test_calendar.py의 --render로 생성한다. 날짜·노선 수정은 확정된 원본 설정에 먼저 반영한다.', '',
              '## 2. 일일 테스트 일정', '',
-             '| 실행일(2026) | 출발일(2027) | 노선 | 구분 |', '|---|---|---|---|']
+             '| 실행일(2026) | 출발일(2027) | 노선 | 편 | 구분 |', '|---|---|---|---|---|']
     day = date.fromisoformat(cfg['start'])
     while day <= date.fromisoformat(cfg['end']):
         p = plan(day)
         label = p['skipReason'].removeprefix('사용자 확정: ') if not p['enabled'] else ('중요 목표' if p['important'] else '일일 테스트')
-        lines.append(f"| {day} | {p['departureDate']} | {p['origin']} → {p['destination']} | {label} |")
+        lines.append(f"| {day} | {p['departureDate']} | {p['origin']} → {p['destination']} | {('KE' + p['flight']) if p.get('flight') else '-'} | {label} |")
         day += timedelta(days=1)
     lines += ['', '## 3. 사전 리허설 일정과 적용 원칙', '',
               '- 9/9: 인천→파리 최초 리허설. 9/11: 9/14 중요 목표 대비 점검.',
