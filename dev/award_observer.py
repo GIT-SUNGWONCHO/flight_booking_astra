@@ -56,7 +56,9 @@ SAMPLER = r"""(x) => {
     if (!d || typeof d !== 'object') return {state: 'invalid-schema'};
     const code = d.code || d.errorCode || null;
     if (code === 'ERT.10032') return {state: 'not-open', code: code};
-    if (code) return {state: 'error', code: String(code).slice(0, 24)};
+    if (code) return {state: 'error', code: String(code).slice(0, 24),
+                      message: String(d.message || '').replace(/[0-9]{5,}/g, '#').slice(0, 120),
+                      sub: String(((d.subMessages || [])[0] || {}).message || '').replace(/[0-9]{5,}/g, '#').slice(0, 160)};
     const b = (d.upsellBoundAvailList || [])[0];
     const fl = (b && b.availFlightList) || [];
     if (!fl.length) return {state: 'open', flights: 0, target: 'no-flights'};
@@ -206,6 +208,10 @@ def run(a):
             raise ValueError('리허설은 이미 열린 출발일을 사용합니다')
     cfg = settings()
     family = FAMILY.get(p.get('cabin'), 'KEBONUSPR')
+    if a.family:
+        if not a.rehearsal:
+            raise ValueError('등급 변경은 --rehearsal 에서만 허용합니다')
+        family = a.family
     identity = new_run()
     out = output_dir()
     clock = measure_clock()
@@ -315,5 +321,7 @@ if __name__ == '__main__':
     ap.add_argument('--at', default='')
     ap.add_argument('--target', default='')
     ap.add_argument('--rehearsal', action='store_true')
+    ap.add_argument('--family', default='', choices=('', 'KEBONUSEY', 'KEBONUSPR', 'KEBONUSFC'),
+                    help='리허설 전용: 계측 등급(좌석이 있는 등급으로 읽기 확인)')
     ap.add_argument('--ready-file', default='', help='준비 완료(ready)·실패(failed)를 적을 파일(체인용)')
     raise SystemExit(run(ap.parse_args()))
