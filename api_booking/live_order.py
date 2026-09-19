@@ -1326,10 +1326,14 @@ def bridged_payment(page, a, ledger, pl, binding, fare_response, order_response,
         if result.get('diagnostic'):
             log('인계 진단(개인정보 제외): '+json.dumps(result['diagnostic'],ensure_ascii=False))
         if stage=='user-payment-method':
-            # ICN 도착: 동의·마일리지까지 자동. 결제수단(현대카드)·결제하기는 사용자(2026-09-19 결정).
+            # ICN 도착에서 현대카드 선택을 확인하지 못한 경우: 결제하기 전 상태로 사용자에게 넘긴다.
             alert()
             log('**[사용자 차례] 9232 게이트 화면에서 한국발행 신용/체크카드 → 현대카드 → 결제하기. '
                 '카드사 창의 최종 승인은 사용자가 판단한다.**')
+            return 0
+        if stage=='hyundai-card-window':
+            alert()
+            log('**[사용자 차례] 현대카드 창이 열렸다. 앱카드/PIN 인증과 최종 결제는 사용자가 한다.**')
             return 0
         if not completed:
             alert()

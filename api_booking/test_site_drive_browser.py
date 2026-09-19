@@ -131,3 +131,54 @@ class HandoffWatchBrowserTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+CARD_HTML = """<title>card fixture</title>
+<label><input type=radio name=pm id=rad-kor {kor}> 한국발행 신용/체크카드</label>
+<label><input type=radio name=pm id=rad-other> 해외발행 카드</label>
+<select id=sel-korCardCompany style="display:{show}"><option value="">카드사 선택</option>
+<option value=SS>삼성카드</option>{hd}<option value=KB>KB국민카드</option></select>
+<script>
+  document.getElementById('rad-kor').addEventListener('change', () =>
+    document.getElementById('sel-korCardCompany').style.display = 'block');
+  window.changes = 0;
+  document.getElementById('sel-korCardCompany').addEventListener('change', () => window.changes++);
+</script>"""
+
+
+class HyundaiCardSelectTests(unittest.TestCase):
+    """현대카드 선택기(select_hyundai_card)를 로컬 HTML 로 시험한다. 실사이트 DOM 과 같다고 보장하지 않는다."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.pw = sync_playwright().start()
+        cls.browser = cls.pw.chromium.launch()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.browser.close()
+        cls.pw.stop()
+
+    def run_select(self, kor='checked', show='block', hd='<option value=HD>현대카드</option>'):
+        page = self.browser.new_page()
+        page.set_content(CARD_HTML.format(kor=kor, show=show, hd=hd))
+        out = site_drive.select_hyundai_card(page, log=lambda *_: None, pace=0.1)
+        return out, page
+
+    def test_default_korean_card_selects_hyundai_with_change_event(self):
+        out, page = self.run_select()
+        self.assertTrue(out['verified'], out)
+        self.assertEqual(out['select'], 'set')
+        self.assertEqual(page.evaluate('window.changes'), 1)
+        self.assertIn('현대카드', page.evaluate(
+            "(() => { const s = document.getElementById('sel-korCardCompany'); return s.options[s.selectedIndex].text })()"))
+
+    def test_clicks_korean_card_label_when_list_hidden(self):
+        out, _ = self.run_select(kor='', show='none')
+        self.assertTrue(out['verified'], out)
+        self.assertTrue(out.get('koreanCardClicked'))
+
+    def test_missing_hyundai_option_is_not_verified(self):
+        out, _ = self.run_select(hd='')
+        self.assertFalse(out['verified'])
+        self.assertEqual(out['result'], 'option-missing')

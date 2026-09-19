@@ -468,8 +468,53 @@ class PaymentPassTests(unittest.TestCase):
         self.assertEqual(out['stage'], 'unsupported-provider')
         self.assertEqual((page.gotos, page.clicked), ([], []))
 
-    def test_icn_arrival_stops_before_payment_method_for_the_user(self):
-        # 2026-09-19 사용자 결정: 현대카드 방향은 동의·마일리지까지만 하고 결제수단 직전에 멈춘다.
+    def run_icn_arrival(self, card, window=None):
+        ctx, page = self.gate()
+        calls = []
+
+        def fake_card(_page, **kw):
+            calls.append(kw)
+            return dict(card)
+        with mock.patch.object(site_drive, 'select_hyundai_card', fake_card):
+            out = self.run_pass(page, origin='CDG', destination='ICN', window=window)
+        return out, page, calls
+
+    def test_icn_arrival_reaches_hyundai_card_window_and_stops(self):
+        # 2026-09-20 사용자 승인: 한국발행 카드 → 현대카드 → 결제하기 → 현대카드 창 도착에서 정지.
+        out, page, calls = self.run_icn_arrival(
+            {'verified': True, 'result': 'hyundai-selected'},
+            window={'ready': True, 'provider': 'ansimclick.hyundaicard.com',
+                    'stage': 'card-authentication-method-selection'})
+        self.assertEqual(out['stage'], 'hyundai-card-window')
+        self.assertTrue(out['completed'])
+        self.assertTrue(out['handedToUser'])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(page.clicked.count('btn-payment'), 1)
+        self.assertNotIn('rad-naverpay', page.clicked)
+        self.assertEqual(self.window_calls[0]['expected'], 'hyundai')
+        self.assertEqual(out['orderBeforePayment'], out['orderAfterPayment'])
+
+    def test_icn_arrival_without_hyundai_window_is_not_complete(self):
+        out, page, _ = self.run_icn_arrival(
+            {'verified': True, 'result': 'hyundai-selected'},
+            window={'ready': False, 'reason': 'no-new-payment-window'})
+        self.assertFalse(out['completed'])
+        self.assertEqual(out['stage'], 'provider-window:no-new-payment-window')
+
+    def test_icn_arrival_unverified_card_hands_over_before_payment(self):
+        for card in ({'verified': False, 'result': 'option-missing'},
+                     {'verified': False, 'result': 'card-company-select-missing'},
+                     {'verified': False, 'result': 'error:TimeoutError'}):
+            with self.subTest(card['result']):
+                out, page, _ = self.run_icn_arrival(card)
+                self.assertEqual(out['stage'], 'user-payment-method')
+                self.assertTrue(out['handedToUser'])
+                self.assertFalse(out['completed'])
+                self.assertNotIn('btn-payment', page.clicked)
+                self.assertEqual(self.window_calls, [])
+
+    def test_icn_arrival_card_step_failure_on_fake_page_hands_over(self):
+        # 가짜 게이트에는 카드 요소가 없다 → 선택 확인 실패 → 결제하기 없이 사용자에게 넘긴다.
         ctx, page = self.gate()
         out = self.run_pass(page, origin='CDG', destination='ICN')
         self.assertEqual(out['stage'], 'user-payment-method')

@@ -671,6 +671,64 @@ def amount_verdict(text, expected):
     return 'mismatch' if want not in found else 'ambiguous'
 
 
+KOR_CARD_SELECT = 'sel-korCardCompany'
+KOR_CARD_LABEL = '한국발행 신용/체크카드'
+HYUNDAI = '현대카드'
+
+
+def select_hyundai_card(page, *, log=print, pace=1.0, settle_ms=1500):
+    """ICN 도착 결제수단: 한국발행 신용/체크카드 → 카드사 목록에서 현대카드. 결제하기는 누르지 않는다.
+
+    요소는 브라우저 매크로 녹화본(ke-award-macro.user.js)의 실측이다: 결제수단 라벨 `한국발행 신용/체크카드`,
+    카드사 네이티브 select `#sel-korCardCompany`. select 는 매크로와 같이 selectedIndex + input/change 로 맞춘다.
+    반환: {'verified': bool, 'result': 이유, ...}. verified 는 선택 뒤 다시 읽어 현대카드일 때만 True.
+    """
+    w = lambda ms: max(0, int(ms * pace))
+    out = {'verified': False}
+    try:
+        if not _select_visible(page):
+            label = page.locator('label').filter(has_text=KOR_CARD_LABEL)
+            if label.count() != 1:
+                out['result'] = f'korean-card-label-{label.count()}'
+                return out
+            label.first.click(timeout=5000)
+            out['koreanCardClicked'] = True
+            page.wait_for_timeout(w(settle_ms))
+            if not _select_visible(page):
+                out['result'] = 'card-company-select-missing'
+                return out
+        state = page.evaluate("""([id, want]) => {
+          const s = document.getElementById(id);
+          if (!s || s.tagName !== 'SELECT') return 'not-select';
+          const cur = s.options[s.selectedIndex];
+          if (cur && cur.text.includes(want)) return 'already';
+          const i = [...s.options].findIndex(o => o.text.includes(want));
+          if (i < 0) return 'option-missing';
+          s.selectedIndex = i;
+          s.dispatchEvent(new Event('input', {bubbles: true}));
+          s.dispatchEvent(new Event('change', {bubbles: true}));
+          return 'set'; }""", [KOR_CARD_SELECT, HYUNDAI])
+        out['select'] = state
+        if state not in ('already', 'set'):
+            out['result'] = state
+            return out
+        page.wait_for_timeout(w(settle_ms))
+        chosen = page.evaluate("""(id) => { const s = document.getElementById(id);
+          return s && s.selectedIndex >= 0 ? s.options[s.selectedIndex].text.trim() : null; }""",
+                               KOR_CARD_SELECT)
+        out['verified'] = isinstance(chosen, str) and HYUNDAI in chosen
+        out['result'] = 'hyundai-selected' if out['verified'] else 'not-hyundai-after-select'
+    except Exception as exc:  # noqa: BLE001 - 누르지 않고 사용자에게 넘긴다
+        out['result'] = f'error:{type(exc).__name__}'
+    log(f'  현대카드 선택: {out}')
+    return out
+
+
+def _select_visible(page):
+    loc = page.locator(f'#{KOR_CARD_SELECT}')
+    return loc.count() == 1 and loc.is_visible()
+
+
 def wait_provider_window(page, original_pages, *, expected, amount=None, timeout_ms=25000,
                          step_ms=500, log=print):
     """결제하기 뒤 이번 실행의 새 제공자 창을 기다려 판정한다. 제공자 창 안에서는 누르지 않는다.
@@ -754,7 +812,7 @@ def payment_pass(page, *, flight, date, reference=None, ordered_at=None, mileage
     **사용자 확정(2026-09-13): 동의부터는 API 가 아니라 기존 브라우저 클릭 방식.**
     - 게이트 주문 참조가 이번 주문과 같을 때만 누른다(D1). 이미 열린 게이트는 누르지 않는다.
     - 동의 두 개는 각각 상태를 읽고 처리한다. 실패하면 뒤 단계로 가지 않는다.
-    - 결제수단은 방향별 목표만 쓴다. ICN 출발 Npay 외에는 이 함수가 다루지 않는다.
+    - 결제수단은 방향별 목표만 쓴다. ICN 출발 Npay, ICN 도착 현대카드(인증수단 선택 창에서 정지).
     - 완료(`completed`)는 새 제공자 창 ready + 기대 금액 표기 + NaverPay 요청 참조 일치 +
       결제하기 뒤 화면 주문 재판정 통과일 때만이다. 제공자 창 안에서는 아무것도 누르지 않는다.
     """
@@ -769,9 +827,9 @@ def payment_pass(page, *, flight, date, reference=None, ordered_at=None, mileage
         expected = payment_window.payment_provider(origin, destination)
     except ValueError:
         expected = None
-    # ICN 도착(현대카드)은 결제수단 자동 선택을 검증하지 않았다(2026-09-19 사용자 결정):
-    # 동의·마일리지·주문 재판정까지만 하고 결제수단 선택 직전에 멈춰 사용자에게 넘긴다.
-    stop_before_method = expected == 'hyundai'
+    # ICN 도착(2026-09-20 사용자 승인): 한국발행 신용/체크카드 → 현대카드 → 결제하기 → 현대카드 인증수단
+    # 선택 창 도착에서 정지. 카드 선택을 확인하지 못하면 결제하기를 누르지 않고 사용자에게 넘긴다.
+    hyundai = expected == 'hyundai'
     if expected not in ('npay', 'hyundai'):
         log(f'  방향 {origin}-{destination} 의 결제수단은 이 단계가 다루지 않는다.')
         return {'navigated': False, 'matched': False, 'order': 'unsupported-provider',
@@ -814,17 +872,21 @@ def payment_pass(page, *, flight, date, reference=None, ordered_at=None, mileage
             result['stage'] = f'mileage-{mileage_step["result"]}'
             log(f'  **마일리지 적용을 확인하지 못했다({mileage_step["result"]}). 결제하기로 가지 않는다.**')
             return result
-        if stop_before_method:
-            again = watch.judge(reference, ordered_at)
-            result['orderBeforePayment'] = again.state
-            if not again.same_reference:
-                result['stage'] = 'order-changed-before-payment'
-                log(f'  **결제수단 직전 화면 주문 판정이 {again.state} 로 바뀌었다. 사용자 확인 필요.**')
+        if hyundai:
+            card = select_hyundai_card(page, log=log, pace=pace)
+            result['steps']['card'] = card
+            if not card['verified']:
+                again = watch.judge(reference, ordered_at)
+                result['orderBeforePayment'] = again.state
+                if not again.same_reference:
+                    result['stage'] = 'order-changed-before-payment'
+                    log(f'  **결제수단 직전 화면 주문 판정이 {again.state} 로 바뀌었다. 사용자 확인 필요.**')
+                    return result
+                result.update(stage='user-payment-method', handedToUser=True)
+                log(f'  **현대카드 선택을 확인하지 못했다({card["result"]}). 결제하기를 누르지 않는다. '
+                    '결제수단·결제하기는 사용자가 한다.**')
                 return result
-            result.update(stage='user-payment-method', handedToUser=True)
-            log('  **동의·마일리지 확인 완료. 결제수단(한국발행 카드→현대카드)과 결제하기는 사용자가 한다.**')
-            return result
-        if _radio_checked(page, 'rad-naverpay') is not True:
+        elif _radio_checked(page, 'rad-naverpay') is not True:
             label=page.locator('label[for="rad-naverpay"]')
             if label.count()==1 and label.is_visible():
                 try:
@@ -839,9 +901,10 @@ def payment_pass(page, *, flight, date, reference=None, ordered_at=None, mileage
                     return result
             else:
                 result['steps']['npay'] = click_id(page, 'rad-naverpay', wait=w(1500))
-        checked = _radio_checked(page, 'rad-naverpay')
-        result['steps']['npayChecked'] = checked
-        log(f'  Npay 선택 확인={checked}')
+        checked = True if hyundai else _radio_checked(page, 'rad-naverpay')
+        if not hyundai:
+            result['steps']['npayChecked'] = checked
+            log(f'  Npay 선택 확인={checked}')
         if checked is not True:
             result['stage'] = 'npay-not-selected'
             log('  **Npay 가 선택되지 않았다. 다른 결제수단 창이 열리지 않게 결제하기를 누르지 않는다.**')
@@ -878,6 +941,11 @@ def payment_pass(page, *, flight, date, reference=None, ordered_at=None, mileage
         if not window.get('ready'):
             result['stage'] = f'provider-window:{window.get("stage") or window.get("reason")}'
             log(f'  **목표 결제창에 도착하지 못했다({result["stage"]}). 다른 결제수단으로 바꾸지 않는다.**')
+            return result
+        if hyundai:
+            # 현대카드 첫 창은 앱카드/PIN 선택 화면이라 가맹점·금액이 없다(9/8 관측). 금액은 게이트에서 확인했다.
+            result.update(completed=True, stage='hyundai-card-window', handedToUser=True)
+            log('  **이번 주문의 현대카드 인증수단 선택 창에 도착했다. 창 안에서는 누르지 않는다. 결제는 사용자.**')
             return result
         if amount is None or window.get('amountMatched') is not True:
             result['stage'] = f'provider-amount-{window.get("amountVerdict") or "unchecked"}'

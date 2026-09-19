@@ -62,37 +62,40 @@ class RunnerTests(FlowHarness):
     def test_scheduled_prestige_binds_before_fire_and_hands_icn_arrival_to_user(self):
         # 2026-09-19: 프레스티지·다른 캡처 날짜·--at 허용. 결속은 T-15초에 미리 잡고,
         # ICN 도착(현대카드)은 결제수단 직전 정지(user-payment-method)를 성공으로 끝낸다.
-        from datetime import datetime
-        from test_live_order import FakeClock
-        clock=FakeClock(datetime(2099,1,1,8,59,0,tzinfo=live_order.KST))
-        bound=[]
-        connection=types.SimpleNamespace(result={'matched':True,'sessionUnchanged':True,
-            'displayHints':{'date':True,'mileage':True,'krw':True},'stage':'same-order-reference'},
-            guard=object(),close=mock.Mock())
-        def bind(*_a,**kw):
-            bound.append((clock.t,kw.get('search_date')))
-            return types.SimpleNamespace(storage={})
-        with mock.patch.object(live_order.connected_bridge,'bind',side_effect=bind), \
-             mock.patch.object(live_order.connected_bridge.state_bridge,'validate_prepared_storage'), \
-             mock.patch.object(live_order.connected_bridge,'preflight',return_value=True), \
-             mock.patch.object(live_order.connected_bridge,'connect',return_value=connection), \
-             mock.patch.object(live_order.site_drive,'payment_pass',return_value={
-                 'completed':False,'stage':'user-payment-method','handedToUser':True}) as payment, \
-             mock.patch.object(live_order.recovery,'inspect_failure') as inspect:
-            code,_,calls,intent=self.run_main('--state-bridge','--continue-payment','--inspect-failure',
-                '--capture-iso','2027-09-07','--at','09:00:00',initial_url=CAL_URL,clock=clock,
-                send_hook=lambda name,body: None if name!='awardAvailability'
-                    or '20270909' in body else {'ok':True,'status':200,'elapsedMs':1.0,
-                    'body':__import__('json').dumps(__import__('test_pipeline').award_response(
-                        date='20270907112000'))})
-        self.assertEqual((code,intent),(0,'ordered'))
-        self.assertEqual(len(bound),1)
-        when,search=bound[0]
-        self.assertEqual(search,'2027-09-07')
-        self.assertGreaterEqual(when,datetime(2099,1,1,8,59,44,tzinfo=live_order.KST))
-        self.assertLess(when,datetime(2099,1,1,9,0,0,tzinfo=live_order.KST))
-        self.assertEqual(calls.count('send:inputTravellers@calendar-fare-bonus'),1)
-        payment.assert_called_once();inspect.assert_not_called()
+        # 2026-09-20: 현대카드 창 도착(hyundai-card-window)도 사용자에게 넘기는 성공이다.
+        for pay in ({'completed':False,'stage':'user-payment-method','handedToUser':True},
+                    {'completed':True,'stage':'hyundai-card-window','handedToUser':True}):
+          with self.subTest(pay['stage']):
+            from datetime import datetime
+            from test_live_order import FakeClock
+            clock=FakeClock(datetime(2099,1,1,8,59,0,tzinfo=live_order.KST))
+            bound=[]
+            connection=types.SimpleNamespace(result={'matched':True,'sessionUnchanged':True,
+                'displayHints':{'date':True,'mileage':True,'krw':True},'stage':'same-order-reference'},
+                guard=object(),close=mock.Mock())
+            def bind(*_a,**kw):
+                bound.append((clock.t,kw.get('search_date')))
+                return types.SimpleNamespace(storage={})
+            with mock.patch.object(live_order.connected_bridge,'bind',side_effect=bind), \
+                 mock.patch.object(live_order.connected_bridge.state_bridge,'validate_prepared_storage'), \
+                 mock.patch.object(live_order.connected_bridge,'preflight',return_value=True), \
+                 mock.patch.object(live_order.connected_bridge,'connect',return_value=connection), \
+                 mock.patch.object(live_order.site_drive,'payment_pass',return_value=dict(pay)) as payment, \
+                 mock.patch.object(live_order.recovery,'inspect_failure') as inspect:
+                code,_,calls,intent=self.run_main('--state-bridge','--continue-payment','--inspect-failure',
+                    '--capture-iso','2027-09-07','--at','09:00:00',initial_url=CAL_URL,clock=clock,
+                    send_hook=lambda name,body: None if name!='awardAvailability'
+                        or '20270909' in body else {'ok':True,'status':200,'elapsedMs':1.0,
+                        'body':__import__('json').dumps(__import__('test_pipeline').award_response(
+                            date='20270907112000'))})
+            self.assertEqual((code,intent),(0,'ordered'))
+            self.assertEqual(len(bound),1)
+            when,search=bound[0]
+            self.assertEqual(search,'2027-09-07')
+            self.assertGreaterEqual(when,datetime(2099,1,1,8,59,44,tzinfo=live_order.KST))
+            self.assertLess(when,datetime(2099,1,1,9,0,0,tzinfo=live_order.KST))
+            self.assertEqual(calls.count('send:inputTravellers@calendar-fare-bonus'),1)
+            payment.assert_called_once();inspect.assert_not_called()
 
     def test_failed_final_preflight_never_sends_order(self):
         with mock.patch.object(live_order.connected_bridge,'bind',return_value=types.SimpleNamespace(storage={})), \
