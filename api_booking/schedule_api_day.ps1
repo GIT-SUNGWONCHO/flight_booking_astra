@@ -2,11 +2,13 @@
 # 지속 설정이므로 사용자 승인 뒤에만 등록한다. 끝난 작업은 -Remove 로 지운다.
 #
 #   등록  powershell -File api_booking\schedule_api_day.ps1 -Name ColdStart -At 03:20 -ArgsLine "--mode rehearsal ..."
+#         (다른 날은 -Date 2026-09-20 을 더한다)
 #   삭제  powershell -File api_booking\schedule_api_day.ps1 -Name ColdStart -Remove
 #   확인  Get-ScheduledTask -TaskName Astra-* | Get-ScheduledTaskInfo
 param(
   [Parameter(Mandatory = $true)][string]$Name,
   [string]$At = '',
+  [string]$Date = '',
   [string]$ArgsLine = '',
   [switch]$Remove
 )
@@ -19,8 +21,9 @@ if ($Remove) {
   return
 }
 if (-not $At -or -not $ArgsLine) { throw '-At HH:mm and -ArgsLine are required' }
-$when = Get-Date $At
-if ($when -le (Get-Date).AddMinutes(1)) { throw "start time $At is not in the future (today)" }
+# -Date yyyy-MM-dd 를 주면 그날, 없으면 오늘 -At 시각.
+$when = if ($Date) { [datetime]::ParseExact("$Date $At", 'yyyy-MM-dd HH:mm', $null) } else { Get-Date $At }
+if ($when -le (Get-Date).AddMinutes(1)) { throw "start time $Date $At is not in the future" }
 if ($ArgsLine -match '[&|<>^"]') { throw 'ArgsLine must not contain shell metacharacters' }
 
 $outDir = Join-Path $root 'dev-shots\api-day'
