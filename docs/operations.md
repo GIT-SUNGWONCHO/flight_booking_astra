@@ -25,7 +25,7 @@ Copy-Item .env.example .env                                    # 값은 사용�
    - 상태: `.\.venv\Scripts\python.exe api_booking\live_order.py --date <목표> --status` → "남은 주문 의도·전송권 없음"이어야 한다.
 2. **작업 등록**(사용자 승인 뒤)
    ```powershell
-   powershell -File api_booking\schedule_api_day.ps1 -Name Live0920 -Date 2026-09-20 -At 08:20 -ArgsLine "--mode live --target-date 2027-09-15 --capture-iso 2027-09-13 --origin FCO --destination ICN --flight 932 --family KEBONUSPR --own-mileage 100000 --at 09:00:00 --health-at 08:50:00 --capture-not-before 08:38:00 --reprep-cutoff 08:52:00 --pre-fire-ms 100 --observer"
+   powershell -File api_booking\schedule_api_day.ps1 -Name Live0920 -Date 2026-09-20 -At 08:20 -ArgsLine "--mode live --target-date 2027-09-15 --capture-iso 2027-09-13 --origin FCO --destination ICN --flight 932 --family KEBONUSPR --own-mileage 100000 --at 09:00:00 --health-at 08:50:00 --capture-not-before 08:38:00 --reprep-cutoff 08:52:00 --pre-fire-ms 500 --open-retry-gap-ms 50 --observer"
    Get-ScheduledTask -TaskName 'Astra-*' | Get-ScheduledTaskInfo
    ```
 3. **당일 흐름**: 08:20 체인 시작(9232 재기동·로그인, 9233 계측 체인) → 08:38 캡처 → 08:50 세션 점검(실패 시 08:52 전 재준비)
@@ -62,7 +62,7 @@ Copy-Item .env.example .env                                    # 값은 사용�
 | 캡처 실패(운임칸·통화) | 콘솔 로그의 `통화 준비`·`운임 선택` 줄 확인. 화면 캡처로 원인 확인 후 코드 수정 → `--dry`로 재확인 |
 | 종료 코드 3 반복 | 토큰·달력 이탈·저장 상태 원인 확인. 70분 방치 시 로그아웃·홈 이동 사례(9/19) |
 | 종료 코드 2 | 주문이 나갔을 수 있다. **재실행 금지**, 상태·증거 확인 |
-| 9233 계측 실패 | 예매와 무관. `observer-<runId>.log` 확인, 필요 시 9233 네이버 재로그인 |
+| 9233 계측 실패 | 예매와 무관. `observer-<runId>.log`·`runs/<runId>/award_observer.json`·`calendar_observer.json` 확인, 필요 시 9233 네이버 재로그인 |
 | 남은 live_order | 다음 실전 `api_day --mode live`가 자동 종료한다. 수동 종료는 이 저장소 live_order 명령줄인지 확인 뒤 PID 한정 |
 
 ## 6. Chrome·프로필

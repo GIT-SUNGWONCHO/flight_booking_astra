@@ -138,6 +138,8 @@ def order_args(a, at, health_at, state_dir):
         args += ['--state-dir', str(state_dir)]
     if a.observe_date:
         args += ['--observe-date', a.observe_date]
+    if a.open_retry_gap_ms is not None:
+        args += ['--open-retry-gap-ms', str(a.open_retry_gap_ms)]
     return args
 
 
@@ -154,6 +156,8 @@ def main():
     ap.add_argument('--own-mileage', type=int, required=True)
     ap.add_argument('--pre-fire-ms', type=int, default=0)
     ap.add_argument('--not-open-shape', default='')
+    ap.add_argument('--open-retry-gap-ms', type=int, default=None,
+                    help='미개방 재조회 간격(응답 뒤, 동시 1건). 주지 않으면 live_order 기본값')
     ap.add_argument('--observe-date', default='')
     ap.add_argument('--at', default='', help='발사 시각 HH:MM:SS. live 필수, rehearsal 도 주면 실전과 같은 시각 흐름')
     ap.add_argument('--health-at', default='', help='세션 점검 시각 HH:MM:SS(--at 과 함께)')

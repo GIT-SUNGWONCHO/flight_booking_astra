@@ -14,6 +14,7 @@
   "observerPort": 9233,
   "bookingStart": "user-arm",
   "observer": {"gapMs": 300, "maxInflight": 4, "maxStartDelayMs": 150, "uiReloadMs": 0, "confirmUiAfter": true, "preMs": 3000, "postMs": 10000},
+  "awardObserver": {"mode": "both", "denseFromMs": -1800, "denseToMs": 600, "denseGapMs": 150, "sparseGapMs": 300, "postMs": 10000, "maxInflight": 12, "maxLagMs": 100},
   "targets": [
     {"runDate": "2026-09-14", "origin": "ICN", "destination": "CDG", "departureDate": "2027-09-09"},
     {"runDate": "2026-09-18", "origin": "CDG", "destination": "ICN", "departureDate": "2027-09-13", "important": false, "note": "9/15~9/18 CDG→ICN 이력 보존용 구간 끝"},

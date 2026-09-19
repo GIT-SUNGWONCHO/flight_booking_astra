@@ -274,6 +274,8 @@ def main():
     p.add_argument('--fare-tests', action='store_true', help='2단계 운임 시험도 한다(주문 없음)')
     p.add_argument('--overlap-delays', default='',
                    help='같은 날짜 조회 두 개를 겹쳐 보낼 간격(ms) 목록(B 전제 시험)')
+    p.add_argument('--timing-at', default='',
+                   help='HH:MM:SS 기준 -4초~+10초 동안 조회→운임을 순차 반복해 소요 시간만 잰다(계측기 영향 비교)')
     p.add_argument('--gap', type=float, default=1.5)
     a = p.parse_args()
     a.capture_label = f'{a.capture_iso[5:7]}월 {a.capture_iso[8:10]}일'
@@ -305,7 +307,10 @@ def main():
             if AVAIL not in snap or (a.fare_tests and FARE not in snap):
                 log(f'캡처 부족: {report["captured"]} - 중단')
                 return finish(report, watch, 1)
-            run(page, snap, a, dates, tgt, report)
+            if a.timing_at:
+                timing_loop(page, snap, a, tgt[dates[0]], report)
+            else:
+                run(page, snap, a, dates, tgt, report)
         finally:
             watch.stop()
         return finish(report, watch, 0)
@@ -513,6 +518,36 @@ def pipelined(page, snap, target, rid, fid, delay, labels):
                                             and out.get('family') == target.family
                                             and out.get('flightNumber') == target.flight) else 'no'
     return out
+
+
+def timing_loop(page, snap, a, target, report):
+    """예매와 같은 순서(조회 응답 → 운임)를 반복해 시각별 소요 시간을 남긴다. 주문 없음."""
+    from runtime import measure_clock, resolve_time
+    clock = measure_clock()
+    offset = clock['offset'] if clock.get('ok') else 0.0
+    at = resolve_time(a.timing_at).timestamp() - offset      # 로컬 시계 기준 개방 시각
+    report['timing'] = {'at': a.timing_at, 'clock': clock, 'rows': []}
+    while time.time() < at - 4:
+        time.sleep(0.05)
+    key = (a.flight, a.family)
+    while time.time() < at + 10:
+        sent = time.time()
+        meta, data = send_award(page, snap[AVAIL], target)
+        mid = time.time()
+        ids = {(e['flightNumber'], e['family']): (e['recommendId'], e['flightId'])
+               for e in entries(data, target) if e['carrier'] == 'KE' and e['codeShare'] is False}
+        row = {'sentRel': round(sent - at, 3), 'awardMs': meta['elapsedMs'], 'award': meta['verdict']}
+        if key in ids:
+            f = send_fare(page, snap[FARE], target, *ids[key])
+            row.update(fareRel=round(mid - at, 3), fareMs=f.get('elapsedMs'), fare=f['verdict'])
+        report['timing']['rows'].append(row)
+        log(f'순차 {row}')
+    ok = [r for r in report['timing']['rows'] if r.get('fare') == 'validated']
+    if ok:
+        import statistics
+        report['timing']['awardMedianMs'] = statistics.median(r['awardMs'] for r in ok)
+        report['timing']['fareMedianMs'] = statistics.median(r['fareMs'] for r in ok)
+        log(f"중앙값 조회 {report['timing']['awardMedianMs']}ms 운임 {report['timing']['fareMedianMs']}ms")
 
 
 def finish(report, watch, code):
