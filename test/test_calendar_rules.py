@@ -60,7 +60,7 @@ class CalendarRulesTests(unittest.TestCase):
             launch.assert_not_called()
 
     def test_generated_calendar_matches_config(self):
-        self.assertEqual((ROOT / 'CALENDAR.md').read_text(encoding='utf-8'), render())
+        self.assertEqual((ROOT / 'docs' / 'calendar.md').read_text(encoding='utf-8'), render())
 
 
 if __name__ == '__main__':

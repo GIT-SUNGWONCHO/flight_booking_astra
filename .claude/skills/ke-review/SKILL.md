@@ -7,11 +7,11 @@ description: "코드·문서 변경을 코덱스(codex exec review)로 교차 �
 
 ## 1. 목적과 적용 시점
 
-이 지침은 한 도구의 판단을 다른 도구로 교차 확인하는 절차다. 작업 권한은 [AGENTS](../../../AGENTS.md), 검증 기준은 [ke-verify](../ke-verify/SKILL.md)와 [README의 검증 항목](../../../README.md#validation)이 원본이다. 코덱스 검토는 그 기준을 대신하지 않고 추가 근거만 만든다.
+이 지침은 한 도구의 판단을 다른 도구로 교차 확인하는 절차다. 작업 권한은 [AGENTS](../../../AGENTS.md), 검증 기준은 [ke-verify](../ke-verify/SKILL.md)와 [docs/testing.md](../../../docs/testing.md)이 원본이다. 코덱스 검토는 그 기준을 대신하지 않고 추가 근거만 만든다.
 
 적용 시점은 다음 셋이다.
 
-- 실행 코드(`dev/`·`ke_award/`·`userscript/`)나 `api_booking/` 변경을 커밋·인계하기 전
+- 실행 코드(`api_booking/`·`dev/`·`ke_award/`·`userscript/`) 변경을 커밋·인계하기 전
 - 09시 결과 해석·설계 문서를 고치기 전, 특히 수치 해석을 철회하거나 새로 주장할 때
 - 사용자가 검토를 요청할 때
 
@@ -37,7 +37,7 @@ Windows에서는 실행기를 `.\.venv\Scripts\python.exe`로 바꾼다. `codex`
 
 `dev/ke_review.py`는 코덱스를 `sandbox_mode="read-only"`·`approval_policy="never"`로 실행한다. 검토자는 파일을 고치거나 브라우저·시험을 실행할 수 없다. 이 설정을 우회하는 인자를 추가하지 않는다.
 
-검토 지시문은 예매 9232·계측 9233·연구 9242 프로필 접속과 실사이트 주문을 금지하고, 이웃 `flight_booking` 원본을 읽지 않게 한다. 검토 결과가 파일 수정을 제안해도 **적용은 별도 작업**이며 AGENTS의 변경 규칙을 다시 따른다.
+검토 지시문은 예매 9232·계측 9233·연구 9242 프로필 접속과 실사이트 주문을 금지하고, 이웃 `flight_booking`(Claude 원본)을 읽지 않게 한다. 검토 결과가 파일 수정을 제안해도 **적용은 별도 작업**이며 AGENTS의 변경 규칙을 다시 따른다.
 
 ## 4. 결과 읽기
 
@@ -61,8 +61,8 @@ Windows에서는 실행기를 `.\.venv\Scripts\python.exe`로 바꾼다. `codex`
 
 1. 지적마다 **해당 코드·로그를 직접 확인**한다. 코덱스가 읽지 못한 실행 기록(`dev-shots/runs/`)을 근거로 반박할 수 있다.
 2. 실행 환경 차이를 구분한다. Mac에서만 재현되는 문제와 Windows 기준 결함을 나눈다.
-3. 채택·기각·보류로 나누고, 기각은 이유를 적는다. 보류는 [NOW의 과제](../../../NOW.md)에 번호와 다음 확인 조건을 남긴다.
-4. 코드를 고쳤으면 [ke-verify](../ke-verify/SKILL.md)와 [README의 변경별 시험](../../../README.md#handoff)을 그대로 적용한다. 검토 통과는 시험 통과가 아니다.
+3. 채택·기각·보류로 나누고, 기각은 이유를 적는다. 보류는 [NOW의 다음 작업](../../../NOW.md)에 남긴다.
+4. 코드를 고쳤으면 [ke-verify](../ke-verify/SKILL.md)와 [docs/testing.md의 변경별 시험](../../../docs/testing.md)을 그대로 적용한다. 검토 통과는 시험 통과가 아니다.
 
 ## 6. 보고 형식
 
