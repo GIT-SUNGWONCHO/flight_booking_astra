@@ -92,6 +92,11 @@ class PaymentWindowTests(unittest.TestCase):
             self.assertFalse(result['ready']);self.assertTrue(result['providerWindowObserved'])
             self.assertTrue(inspect_new_payment_windows([old,card,irrelevant],{old},'hyundai')['ready'])
             self.assertFalse(inspect_new_payment_windows([old,card],{old,card},'hyundai')['ready'])
+            # 2026-09-20 리허설: 현대카드 첫 창 경로가 /web/WEB100.do 로 바뀌었다(화면은 같음).
+            card2=page_at('https://ansimclick.hyundaicard.com/web/WEB100.do','<p>Hyundai Card</p><button>앱카드 결제</button><button>PIN번호 결제</button>')
+            self.assertTrue(inspect_new_payment_windows([old,card2],{old},'hyundai')['ready'])
+            other=page_at('https://ansimclick.hyundaicard.com/other/x','<button>앱카드 결제</button><button>PIN번호 결제</button>')
+            self.assertFalse(inspect_new_payment_windows([old,other],{old},'hyundai')['ready'])
             login=page_at('https://m.pay.naver.com/login-test','네이버 로그인 <button>로그인</button>')
             result=inspect_new_payment_windows([old,card,login,irrelevant],{old})
             self.assertEqual(result['stage'],'login-required')

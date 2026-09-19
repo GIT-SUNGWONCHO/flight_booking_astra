@@ -18,7 +18,8 @@ def inspect_payment_window(page, expected='npay'):
     if url.scheme != 'https' or not url.hostname:
         return {'ready': False, 'reason': 'payment-provider-not-loaded'}
     try:
-        if url.hostname == 'ansimclick.hyundaicard.com' and url.path.startswith('/xacs3/'):
+        # 9/8 관측 /xacs3/, 9/20 리허설 관측 /web/WEB100.do. 화면 판정(앱카드/PIN 선택 보임)이 본 조건이다.
+        if url.hostname == 'ansimclick.hyundaicard.com' and url.path.startswith(('/xacs3/', '/web/')):
             # Observed live issuer entry screen: authentication choices precede
             # merchant/amount display. Do not click either authentication method.
             observed = (page.evaluate("document.readyState === 'complete'")
