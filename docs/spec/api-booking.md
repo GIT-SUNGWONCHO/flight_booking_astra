@@ -87,6 +87,7 @@
 - **신뢰 경계 = 개방 시각 + 시계 불확실성.** 그 전에 **보낸** 조회의 `selected` 아닌 응답은 전부 재시도한다
   (not-open·no-target·business-error·sold-out·세션 오류 포함). 정각 전 부정 응답은 판정 근거가 아니다.
 - 경계 뒤에 보낸 조회는 기존 판정을 신뢰한다. 예외: `not-open`(`ERT.10032`)과 `--not-open-shape`로 지정한 관측 형태(매진 제외)는 상한 안에서 재조회.
+  **`ERT.3002`**("정상적으로 처리되지 않았습니다. 잠시 후 다시 시도해 주세요.", 일시 처리 실패)도 상한 안에서 재조회한다(`transient-error`, 2026-09-20 사용자 결정).
 - 상한: `--open-retry-max` 25, `--open-retry-gap-ms` 150(응답 뒤 간격, 동시 1건), `--open-retry-until-ms` 8000.
   측정 실패 시 경계 여유는 `--unmeasured-clock-margin-ms` 3000.
 - **같은 세션 요청은 겹치지 않는다.** 운임은 세션의 마지막 조회를 위치 번호(`recommendId`·`flightId`)로 참조한다.

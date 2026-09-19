@@ -669,6 +669,20 @@ class OpenRetryTests(FlowHarness):
                                                    '--at', '09:00:00')
                 self.assertEqual((code, len(self.award_times)), (2, 2))
 
+    def test_transient_error_after_the_boundary_is_retried(self):
+        # 2026-09-20 사용자 결정: ERT.3002("잠시 후 다시 시도")는 좌석 판정이 아니다 → 경계 뒤에도 재조회.
+        busy = {'code': 'ERT.3002', 'message': '정상적으로 처리되지 않았습니다. 잠시 후 다시 시도해 주세요.'}
+        code, _, calls, intent = self.fire_with([NOT_OPEN, busy, busy, award_response()], '--at', '09:00:00')
+        self.assertEqual((code, intent), (0, 'ordered'))
+        self.assertEqual(len(self.award_times), 4)
+        self.assertEqual([x['reason'] for x in self.timing()['attempts']][1:3], ['transient-error'] * 2)
+        self.assertEqual(calls.count('send:inputTravellers@calendar-fare-bonus'), 1)
+
+    def test_other_business_error_after_the_boundary_still_stops(self):
+        code, _, _, _ = self.fire_with([NOT_OPEN, {'code': 'ERT.9999'}, award_response()], '--at', '09:00:00')
+        self.assertEqual((code, len(self.award_times)), (2, 2))
+        self.assertEqual(self.timing()['attempts'][-1]['reason'], 'trusted-verdict')
+
     def test_not_open_after_the_boundary_keeps_polling_within_limits(self):
         code, _, calls, intent = self.fire_with([NOT_OPEN] * 5 + [award_response()],
                                                 '--at', '09:00:00')

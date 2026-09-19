@@ -541,7 +541,11 @@ class OpenRetry:
     def deadline(self):
         return None if self.open_at is None else self.open_at + timedelta(seconds=self.until)
 
-    def decide(self, state, sent, not_open_like=False):
+    # 일시 처리 실패("정상적으로 처리되지 않았습니다. 잠시 후 다시 시도해 주세요.", 9/20 계측 관측).
+    # 좌석 판정이 아니므로 경계 뒤에도 상한 안에서 재조회한다(2026-09-20 사용자 결정).
+    TRANSIENT_CODES = frozenset(('ERT.3002',))
+
+    def decide(self, state, sent, not_open_like=False, code=None):
         """(결정, 이유). 결정은 selected / retry / stop.
 
         not_open_like: 리허설에서 관측한 미개방 응답 형태와 같다(매진 판정은 제외하고 넘긴다).
@@ -560,10 +564,24 @@ class OpenRetry:
             return 'retry', 'not-open'
         if not_open_like:
             return 'retry', 'not-open-shape'
+        if code in self.TRANSIENT_CODES:
+            return 'retry', 'transient-error'
         return 'stop', 'trusted-verdict'
 
     def record(self, **entry):
         self.attempts.append(entry)
+
+
+def award_code(result):
+    """조회 응답의 업무 코드(code/errorCode). 없거나 읽지 못하면 None."""
+    try:
+        data = json.loads((result or {}).get('body') or 'null')
+    except (ValueError, TypeError, AttributeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    value = data.get('code') or data.get('errorCode')
+    return value if isinstance(value, str) else None
 
 
 def response_shape(result, target):
@@ -1089,7 +1107,7 @@ def fire(page, snap, a, ledger, pl, retry, checkpoint=lambda: None, binding=None
         shape = response_shape(r, pl.target) if state != 'selected' else None
         like = (state != 'sold-out' and shape is not None
                 and shape_matches(shape, getattr(a, 'not_open_signature', None)))
-        decision, reason = retry.decide(state, sent, not_open_like=like)
+        decision, reason = retry.decide(state, sent, not_open_like=like, code=award_code(r))
         n = len(retry.attempts) + 1
         entry = {'n': n, 'sentAt': _iso(sent), 'receivedAt': _iso(received),
                  'elapsedMs': r.get('elapsedMs') if type(r) is dict else None,
