@@ -171,6 +171,10 @@ def main():
     ap.add_argument('--health-at', default='',
                     help='HH:MM:SS. 대기 중 이 시각에 세션 점검(토큰 만료·열린 날짜 조회·KRW·저장 상태). '
                          f'실패하면 발사하지 않고 종료 코드 {EXIT_REPREPARE}(재준비 가능)로 끝낸다')
+    ap.add_argument('--release-no-reference', action='store_true',
+                    help='사용자 확인 뒤: --day 의 unknown 의도와 전송권을 보관 폴더로 옮긴다(삭제 아님). '
+                         '그 runId 의 주문 증거에 예약번호·주문번호가 모두 없을 때만 허용. 사이트 접속 없음')
+    ap.add_argument('--release-reason', default='', help='--release-no-reference 기록 사유(필수)')
     ap.add_argument('--status', action='store_true',
                     help='--day 의 주문 의도·전송권 상태만 읽어 보여 준다. 브라우저·사이트 접속 없음')
     ap.add_argument('--dry', action='store_true',
@@ -224,6 +228,8 @@ def main():
 
     if a.status:
         return show_status(a.day)
+    if a.release_no_reference:
+        return release_no_reference(a.day, a.release_reason)
 
     if a.capture_iso:
         if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', a.capture_iso) or \
@@ -345,6 +351,47 @@ def main():
         return run(a, ledger, target, balance, fire_at, clock)
     finally:
         log(f'구간별 호출 수: {ledger.summary()}')
+
+
+def release_no_reference(day, reason):
+    """예약번호 없는 unknown 을 사용자 확인으로 보관한다. 파일은 지우지 않고 옮긴다.
+
+    조건: 그날 의도가 unknown·runId 있음, 전송권의 runId 가 같음, 그 runId 의 received.json 에
+    pnr·orderId 가 모두 없음. 하나라도 어긋나면 아무것도 옮기지 않는다. 서버 해제 확인이 아니다.
+    """
+    if not reason.strip():
+        log('--release-reason 이 필요하다')
+        return 2
+    path = intent_path(day)
+    try:
+        intent = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        log('그날 주문 의도 기록을 읽을 수 없다 - 옮기지 않음')
+        return 2
+    run_id = intent.get('runId') if type(intent) is dict else None
+    held = permit.existing_permit(STATE)
+    if intent.get('state') != 'unknown' or not run_id or not held or held.get('runId') != run_id:
+        log(f'unknown·runId·전송권이 서로 맞지 않는다(의도 {intent.get("state")}, 전송권 {held}) - 옮기지 않음')
+        return 2
+    try:
+        received = order_evidence.load_received(STATE, run_id)
+    except Exception:
+        received = None
+    if type(received) is not dict or received.get('pnr') or received.get('orderId'):
+        log('주문 증거가 없거나 예약번호·주문번호가 있다 - 사용자 예약 확인 절차가 필요하다. 옮기지 않음')
+        return 2
+    stamp = datetime.now(KST).strftime('%Y%m%dT%H%M%S')
+    dest = STATE / 'released' / f'{day}-{run_id}-{stamp}'
+    dest.mkdir(parents=True, exist_ok=False)
+    permit.durable_json(dest / 'release.json', {
+        'day': day, 'runId': run_id, 'releasedAt': datetime.now(KST).isoformat(),
+        'reason': reason.strip()[:300], 'evidence': {'pnr': None, 'orderId': None,
+            'judgment': (received.get('diagnostic') or {}).get('state')},
+        'meaning': '예약번호 없는 unknown 의 사용자 확인 보관. 서버 해제 확인 아님'})
+    path.replace(dest / path.name)
+    permit.permit_path(STATE).replace(dest / permit.PERMIT_NAME)
+    log(f'보관 완료: {dest}. 새 실행이 가능해졌다')
+    return 0
 
 
 def show_status(day):

@@ -945,4 +945,56 @@ class ReadinessTests(OpenRetryTests):
         return path
 
 
+class ReleaseNoReferenceTests(unittest.TestCase):
+    """예약번호 없는 unknown 의 사용자 확인 보관(삭제 아님). 사이트 접속 없음."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.run_id = 'abcdef123456'
+        (self.tmp / 'order-intent-2099-01-01.json').write_text(json.dumps(
+            {'day': '2099-01-01', 'state': 'unknown', 'why': 'business-error', 'runId': self.run_id}),
+            encoding='utf-8')
+        (self.tmp / 'order-permit.json').write_text(json.dumps({'runId': self.run_id}), encoding='utf-8')
+        self.write_receipt(pnr=None)
+
+    def write_receipt(self, pnr):
+        d = self.tmp / 'order-evidence' / self.run_id
+        d.mkdir(parents=True, exist_ok=True)
+        (d / 'received.json').write_text(json.dumps({'runId': self.run_id, 'pnr': pnr, 'orderId': None,
+            'diagnostic': {'state': 'received'}}), encoding='utf-8')
+
+    def release(self, *extra):
+        logs = []
+        argv = ['live_order.py', '--date', '2027-09-09', '--day', '2099-01-01',
+                '--release-no-reference', *extra]
+        with mock.patch.object(sys, 'argv', argv), mock.patch.object(live_order, 'STATE', self.tmp),                 mock.patch.object(live_order, 'log', logs.append):
+            return live_order.main(), logs
+
+    def test_moves_intent_and_permit_into_released_folder(self):
+        code, _ = self.release('--release-reason', '09:00 business-error, 예약번호 없음, 사용자 확인')
+        self.assertEqual(code, 0)
+        self.assertFalse((self.tmp / 'order-permit.json').exists())
+        self.assertFalse((self.tmp / 'order-intent-2099-01-01.json').exists())
+        kept = list((self.tmp / 'released').iterdir())
+        self.assertEqual(len(kept), 1)
+        self.assertTrue((kept[0] / 'order-permit.json').exists())
+        self.assertTrue((kept[0] / 'order-intent-2099-01-01.json').exists())
+        note = json.loads((kept[0] / 'release.json').read_text(encoding='utf-8'))
+        self.assertIn('서버 해제 확인 아님', note['meaning'])
+
+    def test_refuses_when_a_reference_exists_or_records_disagree(self):
+        code, _ = self.release()
+        self.assertEqual(code, 2)                        # 사유 없음
+        self.write_receipt(pnr='FAKEPNR')
+        code, _ = self.release('--release-reason', 'x')
+        self.assertEqual(code, 2)
+        self.write_receipt(pnr=None)
+        (self.tmp / 'order-permit.json').write_text(json.dumps({'runId': 'ffffffffffff'}), encoding='utf-8')
+        code, _ = self.release('--release-reason', 'x')
+        self.assertEqual(code, 2)
+        self.assertTrue((self.tmp / 'order-intent-2099-01-01.json').exists())
+        self.assertFalse((self.tmp / 'released').exists())
+
+
 if __name__ == '__main__':unittest.main()
