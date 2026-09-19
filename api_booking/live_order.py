@@ -1068,7 +1068,13 @@ def fire(page, snap, a, ledger, pl, retry, checkpoint=lambda: None, binding=None
     log(f'운임 status={r2.get("status")} {r2.get("elapsedMs",0):.0f}ms 판정={state} '
         f'(+{time.monotonic()-t0:.3f}s)')
     if state != 'validated':
-        log(f'운임 판정 {state} - 주문하지 않는다')
+        try:
+            from evidence import error_detail
+            detail = error_detail(json.loads(r2.get('body') or 'null'))
+        except (ValueError, TypeError):
+            detail = None
+        log(f'운임 판정 {state} - 주문하지 않는다'
+            + (f' · 오류 {json.dumps(detail, ensure_ascii=False)}' if detail else ''))
         return 2
 
     state = pl.prepare_order(snap[ORDER].body)

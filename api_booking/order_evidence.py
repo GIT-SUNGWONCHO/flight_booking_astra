@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
-from evidence import money
+from evidence import money, error_detail
 import permit
 
 STATES=frozenset(('received','order-recorded','amount-mismatch','currency-mismatch',
@@ -62,7 +62,9 @@ def receipt(*,run_id,target,response,quote,passenger_fingerprint,received_at):
         'passengerFingerprint':text_field(passenger_fingerprint,r'[a-f0-9]{64}'),
         'diagnostic':{'state':'received','responseObject':type(body) is dict,
             'httpStatus':response.get('status') if type(response.get('status')) is int and 100<=response['status']<=599 else None,
-            'currencyMatches':fare.get('currency')==quote.target.currency,'values':comparisons}}
+            'currencyMatches':fare.get('currency')==quote.target.currency,'values':comparisons,
+            # 예약번호가 없을 때만 업무 오류 코드·메시지(정제)를 남긴다(2026-09-19 승인).
+            'error':error_detail(data) if not data.get('pnr') else None}}
 
 def save_received(root, **kwargs):
     record=receipt(**kwargs)

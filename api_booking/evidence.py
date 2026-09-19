@@ -1,5 +1,63 @@
 """메모리에서만 여정·금액을 대조하고 결과 불리언만 저장한다. 주문 실행 기능 없음."""
 from decimal import Decimal, InvalidOperation
+import re
+
+# 2026-09-19 사용자 승인(AGENTS §5): 주문 오류 코드·메시지 저장. 식별자·토큰·trace·uuid 제외.
+ERROR_CODE = re.compile(r'[A-Z]{2,8}[.\-_]?[A-Z0-9]{1,12}')
+CODE_KEYS = ('code', 'errorCode', 'resultCode', 'responseCode')
+MESSAGE_KEYS = ('message', 'errorMessage', 'responseMessage')
+
+
+def clean_message(value, limit=300):
+    """오류 문구만 남긴다. 긴 숫자·영숫자 식별자(예약번호 등)·메일 주소는 가린다."""
+    if not isinstance(value, str):
+        return None
+    text = ' '.join(value.split())[:limit]
+    text = re.sub(r'[\w.+-]+@[\w-]+\.[\w.]+', '<email>', text)
+    text = re.sub(r'\b(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{6,}\b', '<id>', text)
+    text = re.sub(r'\d{5,}', '<n>', text)
+    return text or None
+
+
+def _code(value):
+    if isinstance(value, str) and ERROR_CODE.fullmatch(value):
+        return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return None
+
+
+def error_detail(data):
+    """업무 오류 응답에서 코드·메시지만 허용 목록으로 뽑는다. 없으면 None."""
+    if not isinstance(data, dict):
+        return None
+    out = {}
+    for key in CODE_KEYS + ('status',):
+        code = _code(data.get(key))
+        if code is not None:
+            out[key] = code
+    for key in MESSAGE_KEYS:
+        message = clean_message(data.get(key))
+        if message:
+            out[key] = message
+    for key in ('subMessages', 'errors', 'errorList'):
+        items = data.get(key)
+        if not isinstance(items, list):
+            continue
+        rows = []
+        for item in items[:5]:
+            if isinstance(item, str):
+                rows.append({'message': clean_message(item)})
+            elif isinstance(item, dict):
+                row = {k: _code(item.get(k)) for k in CODE_KEYS if _code(item.get(k)) is not None}
+                for k in MESSAGE_KEYS:
+                    if clean_message(item.get(k)):
+                        row[k] = clean_message(item.get(k))
+                if row:
+                    rows.append(row)
+        if rows:
+            out[key] = rows
+    return out or None
 
 
 def money(value):
@@ -25,6 +83,10 @@ def order_amount_diagnostic(body, quote):
     result = {'responseObject': True,
               'referencePresent': isinstance(data.get('pnr'), str) and bool(data['pnr'].strip()),
               'fareObject': isinstance(fare, dict)}
+    if not result['referencePresent']:
+        error = error_detail(data)
+        if error:
+            result['error'] = error
     if isinstance(fare, dict):
         result['currencyMatches'] = fare.get('currency') == quote.target.currency
         result['values'] = {}

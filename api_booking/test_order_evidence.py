@@ -39,6 +39,17 @@ class EvidenceTests(Fixture,unittest.TestCase):
         self.save()
         with self.assertRaises(ValueError):self.save()
         with self.assertRaises(ValueError):store.load_received(self.root,'../secret')
+    def test_business_error_code_and_message_are_persisted_without_identifiers(self):
+        # 2026-09-19 승인(AGENTS §5). 9/19 09:00 business-error 는 이 기록이 없어 원인을 못 가렸다.
+        self.order['body']=json.dumps({'code':'ERT.20001','message':'좌석 없음 SECRET9 1234567',
+            'trace':'SECRET_TRACE','uuid':'SECRET_UUID','status':400})
+        data=json.loads(self.save().read_text(encoding='utf-8'))
+        self.assertIsNone(data['pnr'])
+        self.assertEqual(data['diagnostic']['error'],
+                         {'code':'ERT.20001','status':400,'message':'좌석 없음 <id> <n>'})
+        self.assertNotIn('SECRET',json.dumps(data,ensure_ascii=False))
+    def test_success_receipt_has_no_error_block(self):
+        self.assertIsNone(json.loads(self.save().read_text(encoding='utf-8'))['diagnostic']['error'])
     def test_unknown_error_text_is_not_persisted(self):
         store.save_judgment(self.root,self.run,'SECRET_EXCEPTION')
         self.assertNotIn('SECRET', (self.root/'order-evidence'/self.run/'judgment.json').read_text())
