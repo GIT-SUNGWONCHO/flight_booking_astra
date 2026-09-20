@@ -2,6 +2,7 @@
 
 목적(2026-09-19 사용자 승인)
   1. 조회 API 개방 경계: 개방 몇 ms 전 송신부터 열림 응답이 오는가 → 선발사 값의 근거
+     (발사 75초 전 서버 시각 추정, 60초 전 시계 재측정으로 기준을 맞춘다)
   2. 목표 편·등급 seatCount 감소 시각 → 경쟁 좌석이 빠지는 시점
 
 일정: 개방 denseFromMs~denseToMs 는 denseGapMs 간격(겹쳐 보냄), 그 뒤 postMs 까지 sparseGapMs 간격.
@@ -18,6 +19,7 @@
 from __future__ import annotations
 import argparse
 import json
+import os
 import statistics
 import sys
 import time
@@ -29,12 +31,14 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'api_booking'))
 from runtime import new_run, output_dir, atomic_json, heartbeat, measure_clock, resolve_time  # noqa: E402
 from test_calendar import plan, load_calendar, KST  # noqa: E402
+import server_clock  # noqa: E402
 
 API = '/api/ap/booking/avail/awardAvailability'
 CAL = '/booking/calendar-fare-bonus'
 FAMILY = {'프레스티지': 'KEBONUSPR', '일반석': 'KEBONUSEY', '일등석': 'KEBONUSFC'}
 DEFAULTS = {'mode': 'both', 'denseFromMs': -1800, 'denseToMs': 600, 'denseGapMs': 150,
-            'sparseGapMs': 300, 'postMs': 10000, 'maxInflight': 12, 'maxLagMs': 100}
+            'sparseGapMs': 300, 'postMs': 10000, 'maxInflight': 12, 'maxLagMs': 100,
+            'serverClockSeconds': 4.0}
 
 
 def settings():
@@ -270,8 +274,32 @@ def run(a):
             log(f'{identity} 준비: {report["route"]} {target} {family} · 캡처 {captured_on} · '
                 f'표본 {len(slots)}개 · 개방 {opening.isoformat()}')
             # 캡처 헤더는 예매 쪽에서도 40분 이상 재사용해 왔다. 샘플러는 시작 20초 전에 건다.
+            # T-75초 서버 시각 추정, T-60초 시계 재측정(9/20: 37분 전 측정값을 써서 0.1초 어긋났다).
+            probed = measured = False
             while time.time() * 1000 < slots[0] - 20000:
                 heartbeat('award-observer', 'ready', target=target, openAt=opening.isoformat())
+                left = slots[0] - time.time() * 1000
+                if not probed and left < 75000:
+                    probed = True
+                    report['serverClock'] = server_clock.measure(seconds=cfg['serverClockSeconds'],
+                                                                 offset=offset)
+                    log(f'서버 시각 추정: 로컬이 서버보다 {report["serverClock"].get("localAheadOfServerMs")}ms 빠름 · '
+                        f'기준시각 대비 {report["serverClock"].get("trueAheadOfServerMs")}ms · '
+                        f'표본 {report["serverClock"].get("samples")}')
+                if not measured and left < 60000:
+                    measured = True
+                    os.environ.pop('KE_CLOCK', None)
+                    again = measure_clock()
+                    report['clockFinal'] = again
+                    if again.get('ok'):
+                        moved = (again['offset'] - offset) * 1000
+                        offset = again['offset']
+                        open_local = opening.timestamp() * 1000 - offset * 1000
+                        slots = [open_local + ms for ms in offsets]
+                        log(f'시계 재측정: 오프셋 {offset * 1000:+.1f}ms(직전 대비 {moved:+.1f}ms) '
+                            f'±{(again.get("uncertainty") or 0) * 1000:.1f}ms')
+                    else:
+                        log('시계 재측정 실패 - 시작 측정값을 그대로 쓴다')
                 # time.sleep 은 금지: 동기 Playwright 는 잠든 동안 CDP 메시지를 처리하지 않아 같은 Chrome 의
                 # 새 문서·다른 클라이언트 연결이 멈춘다(9/19 리허설: 달력 계측기 새로 고침·연결 시간 초과).
                 helper.wait_for_timeout(1000)
