@@ -77,3 +77,31 @@ class EvidenceRunnerTests(FlowHarness):
         self.assertEqual(sum(c.startswith('send:inputTravellers') for c in calls),1)
 
 if __name__=='__main__':unittest.main()
+
+
+import order_evidence  # noqa: E402
+
+
+class ServerCreatedTests(unittest.TestCase):
+    """주문 응답 생성 시각은 정밀도와 간격만 남긴다(원문 저장 없음, 9/20)."""
+
+    def test_second_precision_gives_gap_from_request(self):
+        out = order_evidence.server_created({'createDateTime': '20260920090003'}, 1789862400.0)
+        row = out['createDateTime']
+        self.assertEqual(row['precision'], 'second')
+        self.assertIsInstance(row['secondsFromRequest'], float)
+
+    def test_minute_precision_is_flagged(self):
+        out = order_evidence.server_created({'createDateTimeOfKST': '20260920180000'}, None)
+        self.assertEqual(out['createDateTimeOfKST']['precision'], 'minute')
+        self.assertNotIn('secondsFromRequest', out['createDateTimeOfKST'])
+
+    def test_missing_or_broken_fields_are_none(self):
+        self.assertIsNone(order_evidence.server_created({}, None))
+        self.assertIsNone(order_evidence.server_created(None, None))
+        self.assertEqual(order_evidence.server_created({'createDateTime': 'x'}, None)
+                         ['createDateTime']['precision'], 'unknown-format')
+
+    def test_raw_value_is_not_stored(self):
+        out = order_evidence.server_created({'createDateTime': '20260920090003'}, None)
+        self.assertNotIn('20260920090003', json.dumps(out))

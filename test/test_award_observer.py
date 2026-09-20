@@ -69,6 +69,14 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(s['skipped'], 1)
         self.assertIsNone(s['edge']['firstOpenSent'])
 
+    def test_route_and_family_overrides_need_rehearsal(self):
+        # 실전 계측은 공통 일정의 노선·등급만 쓴다(리허설에서만 바꿀 수 있다).
+        import argparse
+        args = argparse.Namespace(day='2026-09-20', at='', target='', rehearsal=False, family='',
+                                  origin='CDG', destination='ICN', flight='902', ready_file='')
+        with self.assertRaisesRegex(ValueError, 'rehearsal'):
+            o.run(args)
+
     def test_no_blocking_sleep_while_connected(self):
         # 동기 Playwright 가 잠들면 같은 Chrome 의 다른 클라이언트·새 문서가 멈춘다(9/19 리허설).
         src = (ROOT / 'dev' / 'award_observer.py').read_text(encoding='utf-8')

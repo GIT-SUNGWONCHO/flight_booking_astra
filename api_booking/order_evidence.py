@@ -1,6 +1,7 @@
 """사용자가 9/14 허용한 주문 증거만 저장. 원문 응답·승객정보·세션·결제 토큰 제외."""
 from datetime import datetime, timezone
 import json
+import math
 from pathlib import Path
 import re
 from evidence import money, error_detail
@@ -56,7 +57,8 @@ def receipt(*,run_id,target,response,quote,passenger_fingerprint,received_at):
             'family':text_field(target.family,r'[A-Z0-9]{1,24}')},
         'segmentStatus':status,'currency':text_field(fare.get('currency'),r'[A-Z]{3}'),
         'totalAmount':numeric(fare.get('totalAmount')),'mileage':numeric(fare.get('mileage')),
-        'serverOrderCreatedAt':None, # 서버 생성 시각의 필드 계약은 미확인
+        'serverOrderCreatedAt':None, # 서버 생성 시각 원문은 저장하지 않는다(필드 계약 미확인)
+        'serverCreated':server_created(body, response.get('startedAt')),
         'orderRequestStartedAt':iso(response.get('startedAt')),
         'orderResponseReceivedAt':iso(received_at),
         'passengerFingerprint':text_field(passenger_fingerprint,r'[a-f0-9]{64}'),
@@ -65,6 +67,39 @@ def receipt(*,run_id,target,response,quote,passenger_fingerprint,received_at):
             'currencyMatches':fare.get('currency')==quote.target.currency,'values':comparisons,
             # 예약번호가 없을 때만 업무 오류 코드·메시지(정제)를 남긴다(2026-09-19 승인).
             'error':error_detail(data) if not data.get('pnr') else None}}
+
+def server_created(body, started_at):
+    """주문 응답의 생성 시각 **정밀도와 우리 송신 대비 간격**만 뽑는다(원문 저장 없음).
+
+    9/13 관측: `createDateTime`·`createDateTimeOfKST` 가 있고 한국시각 필드의 초가 00 이었다.
+    초 단위 값이 있으면 '주문 송신 → 서버가 예약을 만든 시각'을 직접 잴 수 있으므로 정밀도를 남긴다.
+    파싱 실패·필드 없음은 None 이며 판정에 쓰지 않는다.
+    """
+    if type(body) is not dict:
+        return None
+    out={}
+    for key in ('createDateTime','createDateTimeOfKST'):
+        raw=body.get(key)
+        if not isinstance(raw,str) or not raw.strip():
+            continue
+        digits=re.sub(r'\D','',raw)
+        row={'length':len(raw),'digits':len(digits)}
+        if len(digits)>=14:
+            row['precision']='minute' if digits[12:14]=='00' else 'second'
+            if len(digits)>14:
+                row['precision']='sub-second'
+            try:
+                moment=datetime.strptime(digits[:14],'%Y%m%d%H%M%S')
+                if type(started_at) in (int,float) and math.isfinite(started_at):
+                    # 서버 시각과 로컬 시각의 차이는 별도 측정 대상이다. 여기서는 초 단위 간격만 남긴다.
+                    row['secondsFromRequest']=round(moment.timestamp()-float(started_at),1)
+            except ValueError:
+                row['precision']='unparsed'
+        else:
+            row['precision']='unknown-format'
+        out[key]=row
+    return out or None
+
 
 def save_received(root, **kwargs):
     record=receipt(**kwargs)

@@ -204,6 +204,8 @@ def run(a):
         return 0
     if (a.at or a.target) and not a.rehearsal:
         raise ValueError('확정 일정을 바꾸려면 --rehearsal 이 필요합니다')
+    if (a.family or a.origin or a.destination or a.flight) and not a.rehearsal:
+        raise ValueError('등급·노선 변경은 --rehearsal 에서만 허용합니다')
     opening = resolve_time(a.at or p['openAt'])
     target = a.target or p['departureDate']
     if a.rehearsal:
@@ -212,10 +214,10 @@ def run(a):
             raise ValueError('리허설은 이미 열린 출발일을 사용합니다')
     cfg = settings()
     family = FAMILY.get(p.get('cabin'), 'KEBONUSPR')
-    if a.family:
-        if not a.rehearsal:
-            raise ValueError('등급 변경은 --rehearsal 에서만 허용합니다')
-        family = a.family
+    if a.family or a.origin or a.destination or a.flight:
+        family = a.family or family
+        p = dict(p, origin=a.origin or p['origin'], destination=a.destination or p['destination'],
+                 flight=a.flight or p['flight'])
     identity = new_run()
     out = output_dir()
     clock = measure_clock()
@@ -351,5 +353,8 @@ if __name__ == '__main__':
     ap.add_argument('--rehearsal', action='store_true')
     ap.add_argument('--family', default='', choices=('', 'KEBONUSEY', 'KEBONUSPR', 'KEBONUSFC'),
                     help='리허설 전용: 계측 등급(좌석이 있는 등급으로 읽기 확인)')
+    ap.add_argument('--origin', default='', help='리허설 전용: 출발 공항')
+    ap.add_argument('--destination', default='', help='리허설 전용: 도착 공항')
+    ap.add_argument('--flight', default='', help='리허설 전용: 편명 숫자')
     ap.add_argument('--ready-file', default='', help='준비 완료(ready)·실패(failed)를 적을 파일(체인용)')
     raise SystemExit(run(ap.parse_args()))
