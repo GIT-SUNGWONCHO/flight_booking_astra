@@ -96,13 +96,28 @@ def select_date(page, label, wait=2500):
     return hit
 
 
-def select_fare(page, cabin='일반석', wait=3000, flight=None):
+def select_fare(page, cabin='일반석', wait=3000, flight=None, tries=1, interval_ms=1000):
     """항공편 화면에서 '항공편명 KE901 일반석 35,000 마일' 형태의 운임 셀을 고른다.
 
     flight 를 주면 그 편명만 고른다(9/19: CDG→ICN 은 공동운항 KE5902 가 먼저 나온다).
     셀이 화면 밖이면 좌표 클릭이 빈 곳을 누르므로 먼저 화면 가운데로 스크롤한다.
+    tries 를 주면 셀이 나올 때까지 다시 본다. 검색 직후 목록이 늦게 그려지면 한 번만
+    보고 실패하기 때문이다(9/21 캡처 2회 연속 실패). 기본 1 은 예전과 같게 둔다.
     """
-    box = page.evaluate("""([cab, num]) => { let hit=null;
+    for attempt in range(max(1, tries)):
+        box = _fare_box(page, cabin, flight)
+        if box:
+            break
+        if attempt + 1 < tries:
+            page.wait_for_timeout(interval_ms)
+    if box:
+        page.mouse.click(box['x'], box['y'])
+        page.wait_for_timeout(wait)
+    return box
+
+
+def _fare_box(page, cabin, flight):
+    return page.evaluate("""([cab, num]) => { let hit=null;
       const re=new RegExp('^항공편명 KE'+(num||'\\\\d+')+' '+cab+' [\\\\d,]+ 마일(?: [1-9][0-9]* 석)?$');
       const deep=(root,d)=>{ if(!root||d>10||hit) return;
         for(const x of root.querySelectorAll('*')){
@@ -113,10 +128,6 @@ def select_fare(page, cabin='일반석', wait=3000, flight=None):
             hit={x:q.left+q.width/2, y:q.top+q.height/2, label:s}; return; } }
         for(const x of root.querySelectorAll('*')) if(x.shadowRoot) deep(x.shadowRoot,d+1); };
       deep(document,0); return hit; }""", [cabin, flight])
-    if box:
-        page.mouse.click(box['x'], box['y'])
-        page.wait_for_timeout(wait)
-    return box
 
 
 def calendar_cells(page):
@@ -243,7 +254,7 @@ def _capture_steps(page, date_label, cabin, log, steps, settle_ms, flight=None,
         log(f'  통화 KRW 확인: {steps["currency"]}')
         if not steps['currency']:
             return
-    steps['fare'] = bool(select_fare(page, cabin, flight=flight))
+    steps['fare'] = bool(select_fare(page, cabin, flight=flight, tries=10))
     log(f'  운임 선택: {steps["fare"]}')
     steps['next'] = click_text(page, '^다음$', 12000)
     log(f'  다음 → {page.url[-40:]}')
