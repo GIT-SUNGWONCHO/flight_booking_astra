@@ -123,6 +123,7 @@ def run(a):
             body['segmentList'][0].update(departureDate=a.target.replace('-', ''),
                                           departureAirport=a.origin, arrivalAirport=a.destination)
             req['body'] = json.dumps(body, ensure_ascii=False)
+            req.setdefault('method', 'POST')   # 캡처에는 메서드가 없다. 조회는 POST 다.
             report['capture'] = {'capturedOn': captured_on, 'headerNames': sorted(req['headers'])}
             helper = ctx.new_page()
             url = 'https://www.koreanair.com/__astra_seat_watch__?run=' + identity
