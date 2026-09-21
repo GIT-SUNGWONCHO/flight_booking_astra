@@ -7,11 +7,14 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright, expect, Error
 
 
+ROLES = {9232: '예매', 9233: '계측', 9242: '예매2'}   # 9242 = 본인 계정 두 번째 예매(2026-09-22)
+
+
 def mark_context(context, port):
-    if port not in (9232, 9233):
+    if port not in ROLES:
         raise ValueError('Only Astra ports are permitted')
     name = f'ASTRA · {port}'
-    role = '예매' if port == 9232 else '계측'
+    role = ROLES[port]
     script = """(() => {
       if (window.top !== window || !/^https?:$/.test(location.protocol)) return;
       if (window.__astraIdentityObserver) window.__astraIdentityObserver.disconnect();
@@ -57,7 +60,7 @@ def mark_context(context, port):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--port', type=int, required=True, choices=[9232, 9233])
+    parser.add_argument('--port', type=int, required=True, choices=sorted(ROLES))
     parser.add_argument('--keep', action='store_true', help='Chrome이 열려 있는 동안 새로고침·탭 이동에도 이름표 유지')
     args = parser.parse_args()
     keeper_handle=None

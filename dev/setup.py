@@ -24,8 +24,9 @@ USER = ROOT / "userscript" / "ke-award-macro.user.js"
 CDP = "http://localhost:9232"
 
 # 로그인 방식(사용자 확정 2026-09-12). 기본은 본인 네이버 연동이다.
-# skypass 복귀는 9232 에만 적용한다 - 9233 계측은 언제나 본인 네이버다.
-PROFILE_BY_PORT = {9232: ".debug-profile", 9233: ".debug-profile2"}
+# skypass 복귀는 9232 에만 적용한다 - 9233 계측과 9242 본인 예매는 언제나 본인 네이버다.
+# 9242 는 2026-09-22 사용자 요청으로 '본인 계정 두 번째 예매'에 쓴다(프로필 .api-profile).
+PROFILE_BY_PORT = {9232: ".debug-profile", 9233: ".debug-profile2", 9242: ".api-profile"}
 
 
 def login_mode(env, port):
