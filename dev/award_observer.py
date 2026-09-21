@@ -70,10 +70,14 @@ SAMPLER = r"""(x) => {
       const legs = f.flightInfoList || [], leg = legs[0] || {};
       if (legs.length !== 1 || leg.flightNumber !== t.flight || leg.operationCarrierCode !== t.carrier
           || leg.codeShare !== false || String(leg.departureDateTime || '').slice(0, 8) !== t.date8) continue;
+      // 응답에는 전 등급이 들어 있다. 목표 등급 말고 나머지도 좌석 수만 남긴다
+      // (2026-09-22: 9석짜리 일반석의 감소가 계단형인지 급감인지 보려고 추가).
+      const all = {};
+      for (const r of (f.commercialFareFamilyList || [])) all[r.fareFamily] = r.seatCount;
       const fare = (f.commercialFareFamilyList || []).find(r => r.fareFamily === t.family);
-      if (!fare) return {state: 'open', flights: fl.length, target: 'family-absent'};
+      if (!fare) return {state: 'open', flights: fl.length, target: 'family-absent', seats: all};
       return {state: 'open', flights: fl.length, target: 'found', seat: fare.seatCount,
-              soldout: fare.soldout, flightSoldOut: f.soldOut};
+              seats: all, soldout: fare.soldout, flightSoldOut: f.soldOut};
     }
     return {state: 'open', flights: fl.length, target: 'flight-absent'};
   };
