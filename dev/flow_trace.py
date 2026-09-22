@@ -7,8 +7,9 @@
   사람이 몰고 우리는 기록만 한다.
 
 안전
-  예약을 만드는 계열의 POST(traveller/order/reserv/pnr)는 **네트워크에서 차단**한다.
-  끝까지 눌러도 예약이 생기지 않는다. 본문·토큰은 저장하지 않고 경로·크기·시각만 남긴다.
+  모든 `/api/` POST 를 한 번 거쳐, 경로에 traveller/order/reserv/pnr 이 있으면
+  **대소문자를 무시하고 네트워크에서 차단**한다. 끝까지 눌러도 예약이 생기지 않는다.
+  본문·토큰은 저장하지 않고 경로·크기·시각만 남긴다.
 
 사용
   .venv/Scripts/python.exe dev/flow_trace.py --port 9232 --minutes 12
@@ -28,8 +29,10 @@ OUT = ROOT / 'dev-shots' / 'research'
 
 # 이 낱말이 경로에 있으면 POST 를 보내지 않는다. 예약 생성 방지.
 DANGER = re.compile(r'traveller|traveler|order|reserv|pnr', re.I)
-BLOCK_PATTERNS = ('**/api/**traveller**', '**/api/**traveler**', '**/api/**order**',
-                  '**/api/**reserv**', '**/api/**pnr**')
+# 낱말별 글로브로 거르지 않는다. Playwright 의 경로 글로브는 대소문자를 구분해서
+# createOrder 같은 낙타등 경로를 그냥 통과시킨다. 모르는 경로를 찾으러 가는 기록이라
+# 모든 /api/ 를 일단 받아 DANGER 로 판정한다.
+API_ROUTE = '**/api/**'
 
 
 def path_of(url):
@@ -66,7 +69,7 @@ def run(a):
         def guard(route):
             req = route.request
             p = path_of(req.url)
-            if req.method == 'POST':
+            if req.method == 'POST' and is_dangerous(p):
                 blocked.append({'at': rel(), 'path': p, 'bytes': len(req.post_data or '')})
                 log(f'  ✂ 차단(예약 생성 안 됨) POST {p} · {len(req.post_data or "")}바이트')
                 route.abort()
@@ -84,10 +87,20 @@ def run(a):
             if req.method == 'POST':
                 log(f'  POST {p} · {len(req.post_data or "")}바이트')
 
+        def live_page():
+            """사람이 모는 탭을 따라간다. 탭을 새로 열거나 닫아도 기록이 끊기지 않게."""
+            alive = [pg for pg in ctx.pages if not pg.is_closed()]
+            for pg in alive:
+                if 'koreanair.com' in pg.url:
+                    return pg
+            return alive[0] if alive else None
+
         ctx.on('request', rec)
-        for pat in BLOCK_PATTERNS:
-            ctx.route(pat, guard)
-        page = ctx.pages[0]
+        ctx.route(API_ROUTE, guard)
+        page = live_page()
+        if page is None:
+            print('열린 탭이 없다. 브라우저에서 예매 화면을 먼저 열어라.', file=sys.stderr)
+            return 2
         log(f'기록 시작 · 포트 {a.port} · {page.url[:70]}')
         print('=' * 72)
         print('  이제 브라우저 창을 폰 너비(약 400px)로 줄이고 평소처럼 예약을 진행하세요.')
@@ -98,8 +111,15 @@ def run(a):
         end = time.monotonic() + a.minutes * 60
         try:
             while time.monotonic() < end:
-                page.wait_for_timeout(2000)          # time.sleep 금지(CDP 정지)
-                now = page.url
+                page = live_page()
+                if page is None:
+                    log('열린 탭이 없다. 기록을 끝낸다.')
+                    break
+                try:
+                    page.wait_for_timeout(2000)      # time.sleep 금지(CDP 정지)
+                    now = page.url
+                except Exception:
+                    continue                         # 탭이 닫혔다. 다음 회차에 다시 고른다
                 if not urls or urls[-1][1] != now:
                     urls.append((rel(), now))
                     log(f'화면 이동 → {now[-60:]}')
