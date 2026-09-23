@@ -21,6 +21,7 @@ import argparse
 import ctypes
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -34,6 +35,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from runtime import KST  # noqa: E402
 
 PY = str(ROOT / ('.venv/Scripts/python.exe' if os.name == 'nt' else '.venv/bin/python'))
+# 예매 포트. 9232 = 와이프 스카이패스, 9242 = 본인 네이버(두 번째 계정).
+# 9233 은 계측 전용이라 여기 쓰지 않는다.
+BOOKING_PORTS = (9232, 9242)
 PORT = 9232
 OUT = ROOT / 'dev-shots' / 'api-day'
 EXIT_REPREPARE = 3
@@ -59,8 +63,12 @@ def today_at(hms):
     return datetime(d.year, d.month, d.day, h, m, s, tzinfo=KST)
 
 
-def lingering_orders():
-    """이 저장소의 live_order 프로세스(PID, 명령줄 일부)."""
+def lingering_orders(port=None):
+    """이 저장소의 live_order 프로세스(PID).
+
+    port 를 주면 **그 포트로 도는 것만** 센다. 2계정 동시 실행에서 한쪽이 다른 쪽의
+    주문 프로세스를 죽이지 않게 하려는 것이다(2026-09-23). port 를 주지 않으면 예전처럼 전부.
+    """
     if os.name != 'nt':
         return []
     cmd = ("Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
@@ -73,9 +81,16 @@ def lingering_orders():
         return []
     rows = rows if isinstance(rows, list) else [rows]
     mine = str(ROOT).lower()
-    return [r['ProcessId'] for r in rows
-            if 'live_order.py' in (r.get('CommandLine') or '')
-            and mine in (r.get('CommandLine') or '').lower() and r['ProcessId'] != os.getpid()]
+    want = re.compile(r'(?:^|\s)--port\s+%d(?:\s|$)' % port) if port else None
+    out = []
+    for r in rows:
+        cmd = r.get('CommandLine') or ''
+        if 'live_order.py' not in cmd or mine not in cmd.lower() or r['ProcessId'] == os.getpid():
+            continue
+        if want and not want.search(cmd):
+            continue
+        out.append(r['ProcessId'])
+    return out
 
 
 def run_step(report, name, args, timeout=300):
@@ -99,10 +114,10 @@ def run_step(report, name, args, timeout=300):
     return code, verdict
 
 
-def browser(report, restart):
+def browser(report, restart, port=PORT):
     args = ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
-            str(ROOT / 'dev' / 'astra_browsers.ps1'), '-Port', str(PORT)] + (['-Restart'] if restart else [])
-    code, _ = run_step(report, 'chrome-9232' + ('-restart' if restart else ''), args, timeout=120)
+            str(ROOT / 'dev' / 'astra_browsers.ps1'), '-Port', str(port)] + (['-Restart'] if restart else [])
+    code, _ = run_step(report, f'chrome-{port}' + ('-restart' if restart else ''), args, timeout=120)
     return code == 0
 
 
@@ -113,7 +128,7 @@ def prepare(report, a):
     live_order 의 캡처 통과가 운임 화면에서 직접 맞춘다(site_drive.capture_pass ensure_currency).
     """
     base = [PY, str(ROOT / 'dev' / 'setup.py'), a.destination, '--from', a.origin,
-            '--port', str(PORT), '--date', a.capture_iso]
+            '--port', str(a.port), '--date', a.capture_iso]
     code, verdict = run_step(report, 'setup-calendar', base)
     if not (isinstance(verdict, dict) and verdict.get('ok')):
         log('달력 복귀 실패')
@@ -123,7 +138,7 @@ def prepare(report, a):
 
 def order_args(a, at, health_at, state_dir):
     label = f'{a.capture_iso[5:7]}월 {a.capture_iso[8:10]}일'
-    args = [PY, str(ROOT / 'api_booking' / 'live_order.py'), '--port', str(PORT),
+    args = [PY, str(ROOT / 'api_booking' / 'live_order.py'), '--port', str(a.port),
             '--date', a.target_date, '--origin', a.origin, '--destination', a.destination,
             '--flight', a.flight, '--family', a.family, '--capture-date', label,
             '--capture-iso', a.capture_iso, '--capture-cabin', a.capture_cabin,
@@ -144,8 +159,12 @@ def order_args(a, at, health_at, state_dir):
 
 
 def main():
-    ap = argparse.ArgumentParser(description='API 예매 무인 체인(9232)')
+    ap = argparse.ArgumentParser(description='API 예매 무인 체인(9232 와이프 · 9242 본인)')
     ap.add_argument('--mode', required=True, choices=['rehearsal', 'live'])
+    ap.add_argument('--port', type=int, default=9232, choices=list(BOOKING_PORTS),
+                    help='예매 브라우저 포트. 9232=와이프 스카이패스, 9242=본인 네이버')
+    ap.add_argument('--live-state-dir', default='',
+                    help='live 에서 이 상태 폴더를 쓴다(2계정 동시 실행 시 B 쪽). 기본 폴더는 줄 수 없다')
     ap.add_argument('--target-date', required=True)
     ap.add_argument('--capture-iso', required=True, help='이미 열린 캡처 날짜 YYYY-MM-DD(목표와 다른 날)')
     ap.add_argument('--origin', default='CDG')
@@ -185,11 +204,25 @@ def main():
     if a.mode == 'live' and a.observe_date:
         log('live 에서는 관측 조회를 섞지 않는다')
         return 2
+    if a.observer and a.port != 9232:
+        log('계측 체인(9233)은 한 번만 띄운다 - --observer 는 9232 쪽에서만 쓴다')
+        return 2
+    if a.live_state_dir:
+        if a.mode != 'live':
+            log('--live-state-dir 는 live 에서만 쓴다(리허설은 자동으로 나뉜다)')
+            return 2
+        if Path(a.live_state_dir).resolve() == (ROOT / 'dev-shots' / 'state').resolve():
+            log('--live-state-dir 는 기본 상태 폴더가 아니어야 한다(전송권·주문 의도가 섞인다)')
+            return 2
+    if a.port != 9232 and a.mode == 'live' and not a.live_state_dir:
+        log('9242 live 는 --live-state-dir 가 필요하다(9232 와 상태 폴더를 나눈다)')
+        return 2
 
     keep_awake()
     run_id = datetime.now(KST).strftime('%Y%m%d-%H%M%S') + '-' + uuid4().hex[:6]
     OUT.mkdir(parents=True, exist_ok=True)
-    report = {'runId': run_id, 'mode': a.mode, 'target': {'date': a.target_date, 'origin': a.origin,
+    report = {'runId': run_id, 'mode': a.mode, 'port': a.port,
+              'target': {'date': a.target_date, 'origin': a.origin,
               'destination': a.destination, 'flight': a.flight, 'family': a.family},
               'captureIso': a.capture_iso, 'startedAt': datetime.now(KST).isoformat(), 'steps': []}
     path = OUT / f'{a.mode}-{run_id}.json'
@@ -198,11 +231,13 @@ def main():
         report.update(extra)
         path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
 
-    state_dir = (ROOT / 'dev-shots' / 'state-rehearsal' / run_id) if a.mode == 'rehearsal' else None
-    left = lingering_orders()
+    state_dir = ((ROOT / 'dev-shots' / 'state-rehearsal' / run_id) if a.mode == 'rehearsal'
+                 else (Path(a.live_state_dir).resolve() if a.live_state_dir else None))
+    # 같은 포트로 도는 것만 본다. 2계정 동시 실행에서 서로를 죽이지 않게 한다.
+    left = lingering_orders(a.port)
     if left:
         if a.mode == 'rehearsal':
-            log(f'이 저장소의 live_order 가 이미 실행 중이다(PID {left}) - 리허설을 시작하지 않는다')
+            log(f'포트 {a.port} 의 live_order 가 이미 실행 중이다(PID {left}) - 리허설을 시작하지 않는다')
             save(result='lingering-process')
             return 2
         # 실전 전: 리허설이 조사 모드로 남아 9232 에 감시를 붙이고 있으면 09시 주문을 막을 수 있다.
@@ -221,7 +256,7 @@ def main():
                                     stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
         report['observer'] = {'pid': observer.pid, 'log': str(obs_log)}
         log(f'계측 9233 체인 시작(PID {observer.pid}, 로그 {obs_log.name}) - 실패해도 예매는 계속')
-    if not browser(report, restart=(a.mode == 'live' and not a.no_restart)):
+    if not browser(report, restart=(a.mode == 'live' and not a.no_restart), port=a.port):
         save(result='chrome-failed')
         return 2
     cutoff = today_at(a.reprep_cutoff) if a.reprep_cutoff else None
