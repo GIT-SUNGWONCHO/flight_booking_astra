@@ -179,7 +179,28 @@ def capture(page, target, log):
                 page.wait_for_timeout(5000)
             drawn = site_drive.wait_calendar(page)
             steps = {}
-            if site_drive._date_and_search(page, f'{day.month:02d}월 {day.day:02d}일', log, steps, drawn):
+            label = f'{day.month:02d}월 {day.day:02d}일'
+            # 날짜 셀은 토글이고 첫 클릭이 선택으로 안 잡히는 일이 잦다(9/22~23 반복).
+            # 선택될 때까지 누른 뒤 [검색]을 직접 부른다. _date_and_search 를 쓰면 그 안에서
+            # 한 번 더 눌러 선택이 풀리고, 빈 날짜로 검색해 달력으로 되튕긴다.
+            cell = None
+            for _ in range(4):
+                cell = site_drive.select_date(page, label)
+                if not cell or cell.get('soldout') or cell.get('selected'):
+                    break
+                page.wait_for_timeout(1000)
+            log(f'  날짜 {label}: {cell} (셀 {drawn}개)')
+            ok = bool(cell) and cell.get('selected') and not cell.get('soldout')
+            if ok:
+                ok = False
+                for _ in range(3):
+                    site_drive.click_text(page, '^검색$', 11000)
+                    if 'select-award-flight' in page.url:
+                        ok = True
+                        break
+                    log('  검색 이동 없음, 재시도')
+                    page.wait_for_timeout(2000)
+            if ok:
                 for _ in range(40):
                     if 'req' in seen:
                         break
