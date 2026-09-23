@@ -24,6 +24,7 @@
 | [docs/testing.md](docs/testing.md) | 시험 단계(T1~T3)·명령·변경별 필수 시험·결과 기록 규칙 |
 | [docs/calendar.md](docs/calendar.md) | 테스트 일정(생성본. 원본 `config/test_calendar.json`) |
 | [docs/results/](docs/results/) | 날짜별 실사이트 실행 결과 |
+| [docs/review/](docs/review/) | 외부 검토 대조·가설 검토. **확정 사실이 아니다**(확정분만 FACTS로 올린다) |
 | [docs/archive/](docs/archive/) | 과거 문서·증거. 실행 지시가 아니다 |
 
 같은 내용을 두 문서의 원본으로 두지 않는다. 결과는 results → 사실은 FACTS → 동작은 spec → 상태는 NOW 순서로 반영한다.
