@@ -15,12 +15,34 @@ import prepare_day
 class CalendarRulesTests(unittest.TestCase):
     def test_departure_sundays_both_directions(self):
         for day, departure in [('2026-09-10', '2027-09-05'),
-                               ('2026-09-17', '2027-09-12'),
-                               ('2026-09-24', '2027-09-19')]:
+                               ('2026-09-17', '2027-09-12')]:
             p = plan(day)
             self.assertFalse(p['enabled'])
             self.assertEqual(p['departureDate'], departure)
             self.assertIn('출발일 일요일', p['skipReason'])
+
+    def test_departure_exclusion_override(self):
+        """규칙은 남기고 특정 실행일만 예외로 연다(2026-09-23 사용자 결정: 9/24 런던).
+
+        예외 목록을 비우면 다시 막혀야 한다. 그래야 예외가 규칙을 지운 게 아니라는 것이 검사된다.
+        """
+        p = plan('2026-09-24')
+        self.assertTrue(p['enabled'])
+        self.assertIsNone(p['skipReason'])
+        self.assertEqual(p['departureDate'], '2027-09-19')
+        self.assertEqual((p['origin'], p['destination'], p['flight']), ('LHR', 'ICN', '908'))
+
+        cfg = load_calendar()
+        cfg['departureExclusionOverrides'] = []
+        with patch('test_calendar.load_calendar', return_value=cfg):
+            off = plan('2026-09-24')
+            self.assertFalse(off['enabled'])
+            self.assertIn('출발일 일요일', off['skipReason'])
+
+    def test_sunday_route_is_london(self):
+        """2026-09-23 실측: 일요일 CDG→ICN 은 KE 운항편이 없고 공동운항 AF5902 만 있다."""
+        self.assertEqual(plan('2026-09-24')['flight'], '908')
+        self.assertEqual(plan('2026-09-25')['flight'], '932')
 
     def test_weekends_follow_the_confirmed_setting(self):
         """주말 휴무는 정책이지 상수가 아니다. 설정을 뒤집어 양쪽을 다 본다.

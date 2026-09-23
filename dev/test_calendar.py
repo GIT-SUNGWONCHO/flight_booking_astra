@@ -26,7 +26,10 @@ def plan(day: date | str):
     target = next(t for t in cfg['targets'] if date.fromisoformat(t['runDate']) >= day)
     departure = day + timedelta(days=cfg['openDaysAhead'])
     skip_reason = None if active else '사용자 확정: 실행일 주말 테스트 없음'
-    if departure.weekday() in cfg.get('excludedDepartureWeekdays', []):
+    # 출발일 요일 제외. 단 departureExclusionOverrides 에 적힌 실행일은 예외로 둔다
+    # (2026-09-23 사용자 결정: 9/24 런던 실전). 규칙 자체는 그대로 남긴다.
+    if (departure.weekday() in cfg.get('excludedDepartureWeekdays', [])
+            and day.isoformat() not in cfg.get('departureExclusionOverrides', [])):
         active = False
         skip_reason = '사용자 확정: 출발일 ' + '월화수목금토일'[departure.weekday()] + '요일 테스트 제외'
     if day.isoformat() == target['runDate'] and departure.isoformat() != target['departureDate']:

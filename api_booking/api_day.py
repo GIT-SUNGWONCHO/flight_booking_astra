@@ -35,9 +35,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from runtime import KST  # noqa: E402
 
 PY = str(ROOT / ('.venv/Scripts/python.exe' if os.name == 'nt' else '.venv/bin/python'))
-# 예매 포트. 9232 = 와이프 스카이패스, 9242 = 본인 네이버(두 번째 계정).
+# 예매 포트. 9232·9243 = 와이프 스카이패스, 9242 = 본인 네이버.
 # 9233 은 계측 전용이라 여기 쓰지 않는다.
-BOOKING_PORTS = (9232, 9242)
+BOOKING_PORTS = (9232, 9242, 9243)
 PORT = 9232
 OUT = ROOT / 'dev-shots' / 'api-day'
 EXIT_REPREPARE = 3
@@ -159,12 +159,12 @@ def order_args(a, at, health_at, state_dir):
 
 
 def main():
-    ap = argparse.ArgumentParser(description='API 예매 무인 체인(9232 와이프 · 9242 본인)')
+    ap = argparse.ArgumentParser(description='API 예매 무인 체인(9232·9243 와이프 · 9242 본인)')
     ap.add_argument('--mode', required=True, choices=['rehearsal', 'live'])
     ap.add_argument('--port', type=int, default=9232, choices=list(BOOKING_PORTS),
-                    help='예매 브라우저 포트. 9232=와이프 스카이패스, 9242=본인 네이버')
+                    help='예매 브라우저 포트. 9232·9243=와이프 스카이패스, 9242=본인 네이버')
     ap.add_argument('--live-state-dir', default='',
-                    help='live 에서 이 상태 폴더를 쓴다(2계정 동시 실행 시 B 쪽). 기본 폴더는 줄 수 없다')
+                    help='live 에서 이 상태 폴더를 쓴다(동시 실행 시 9232 외 모두). 기본 폴더는 줄 수 없다')
     ap.add_argument('--target-date', required=True)
     ap.add_argument('--capture-iso', required=True, help='이미 열린 캡처 날짜 YYYY-MM-DD(목표와 다른 날)')
     ap.add_argument('--origin', default='CDG')
@@ -215,7 +215,7 @@ def main():
             log('--live-state-dir 는 기본 상태 폴더가 아니어야 한다(전송권·주문 의도가 섞인다)')
             return 2
     if a.port != 9232 and a.mode == 'live' and not a.live_state_dir:
-        log('9242 live 는 --live-state-dir 가 필요하다(9232 와 상태 폴더를 나눈다)')
+        log(f'{a.port} live 는 --live-state-dir 가 필요하다(9232 와 상태 폴더를 나눈다)')
         return 2
 
     keep_awake()
