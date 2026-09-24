@@ -28,8 +28,10 @@ CDP = "http://localhost:9232"
 # 언제나 본인 네이버다.
 # 9242 는 2026-09-22 사용자 요청으로 '본인 계정 두 번째 예매'에 쓴다(프로필 .api-profile).
 # 9243 은 2026-09-23 사용자 요청으로 '와이프 계정 두 번째 예매'에 쓴다(프로필 .debug-profile3).
+# 9244 는 2026-09-24 사용자 요청으로 '본인 계정 두 번째 예매'(일반석 대체)에 쓴다(.api-profile2).
 PROFILE_BY_PORT = {9232: ".debug-profile", 9233: ".debug-profile2",
-                   9242: ".api-profile", 9243: ".debug-profile3"}
+                   9242: ".api-profile", 9243: ".debug-profile3",
+                   9244: ".api-profile2"}
 SKYPASS_PORTS = frozenset({9232, 9243})
 
 

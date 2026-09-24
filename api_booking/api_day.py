@@ -37,7 +37,7 @@ from runtime import KST  # noqa: E402
 PY = str(ROOT / ('.venv/Scripts/python.exe' if os.name == 'nt' else '.venv/bin/python'))
 # 예매 포트. 9232·9243 = 와이프 스카이패스, 9242 = 본인 네이버.
 # 9233 은 계측 전용이라 여기 쓰지 않는다.
-BOOKING_PORTS = (9232, 9242, 9243)
+BOOKING_PORTS = (9232, 9242, 9243, 9244)
 PORT = 9232
 OUT = ROOT / 'dev-shots' / 'api-day'
 EXIT_REPREPARE = 3

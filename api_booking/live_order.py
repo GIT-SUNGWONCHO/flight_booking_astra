@@ -125,7 +125,7 @@ def record_intent(day, state, **extra):
 
 def main():
     ap = argparse.ArgumentParser(description='09시 API 예매 실행기')
-    ap.add_argument('--port', type=int, default=9232, choices=[9232, 9242, 9243],
+    ap.add_argument('--port', type=int, default=9232, choices=[9232, 9242, 9243, 9244],
                     help='예매 브라우저. 9232·9243=와이프 스카이패스, 9242=본인 네이버')
     ap.add_argument('--date', required=True, help='목표 출발일 YYYY-MM-DD')
     ap.add_argument('--flight', default='901')

@@ -9,7 +9,7 @@ config.yaml
 profile/
 .test-profile*/
 .debug-profile*/
-.api-profile/
+.api-profile*/
 dev-shots/
 .venv/
 shots/

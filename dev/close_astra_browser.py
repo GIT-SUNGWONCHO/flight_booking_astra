@@ -3,7 +3,7 @@ import argparse
 from playwright.sync_api import sync_playwright
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--port', type=int, required=True, choices=[9232, 9233, 9242, 9243])
+parser.add_argument('--port', type=int, required=True, choices=[9232, 9233, 9242, 9243, 9244])
 args = parser.parse_args()
 with sync_playwright() as pw:
     browser = pw.chromium.connect_over_cdp(f'http://127.0.0.1:{args.port}', timeout=5000)
