@@ -166,6 +166,14 @@ def main():
                     help='--capture-date 와 같은 날짜의 YYYY-MM-DD. 무장 점검 조회와 상태 인계 검색조건 대조에 쓴다')
     ap.add_argument('--state-dir', default='',
                     help='리허설 전용 상태 폴더. 전송권·주문 의도·증거를 기본 폴더와 분리한다')
+    # 대체 예매 게이트(2026-09-24 사용자 결정). 앞선 실행이 좌석을 못 잡았을 때만 주문한다.
+    # 닫히는 쪽이 기본이다 - 파일이 없거나 읽을 수 없거나 판정이 애매하면 주문하지 않는다.
+    ap.add_argument('--order-outcome-file', default='',
+                    help='주문 판정을 이 파일에 남긴다(대체 실행이 읽는 신호). 식별자는 쓰지 않는다')
+    ap.add_argument('--order-gate-file', default='',
+                    help='주문 직전에 이 파일을 본다. 앞선 주문이 좌석을 못 잡았을 때만 주문한다')
+    ap.add_argument('--order-gate-timeout', type=float, default=6.0,
+                    help='--order-gate-file 을 기다리는 최대 초. 넘으면 주문하지 않는다')
     ap.add_argument('--not-open-shape', default='',
                     help='리허설에서 관측한 미개방 응답 형태 JSON 파일. 신뢰 경계 뒤에도 이 형태와 '
                          '같은 응답(매진 제외)은 미개방으로 보고 상한 안에서 재조회한다')
@@ -1082,6 +1090,66 @@ def readiness_check(page, snap, a, ledger, target, fire_at, label):
     return None
 
 
+# 대체 예매 게이트(2026-09-24). 프레스티지가 좌석을 못 잡았을 때만 일반석을 주문한다.
+# 설계 원칙: **닫히는 쪽이 기본**이다. 신호가 없거나 애매하면 주문하지 않는다.
+# 여기서 하는 일은 주문 직전에 기다렸다 그만두는 것뿐이고, 주문·전송권 로직은 건드리지 않는다.
+GATE_ORDER = 'order-recorded'          # 앞선 실행이 좌석을 잡았다 → 대체 주문 안 함
+GATE_PROCEED = ('business-error',)     # 예약번호 없는 업무 오류만 대체 주문 근거로 쓴다
+
+
+def write_order_outcome(a, state, response):
+    """주문 판정을 신호 파일에 남긴다. 식별자·본문은 쓰지 않는다."""
+    path = getattr(a, 'order_outcome_file', '')
+    if not path:
+        return
+    try:
+        body = json.loads(response.get('body') or 'null') if type(response) is dict else None
+    except (ValueError, TypeError):
+        body = None
+    record = {'state': state, 'at': datetime.now(KST).isoformat(),
+              'referencePresent': bool(type(body) is dict and body.get('pnr')),
+              'httpStatus': response.get('status') if type(response) is dict else None}
+    try:
+        permit.durable_json(path, record)
+        log(f'주문 판정 신호 기록: {state}')
+    except OSError as exc:
+        log(f'주문 판정 신호 기록 실패({exc}) - 대체 실행은 주문하지 않게 된다')
+
+
+def read_order_outcome(path):
+    """신호를 읽어 'proceed' / 'seat-taken' / 대기 사유를 돌려준다."""
+    try:
+        raw = Path(path).read_text(encoding='utf-8')
+    except OSError:
+        return 'wait'
+    try:
+        rec = json.loads(raw)
+    except ValueError:
+        return 'unreadable'
+    if type(rec) is not dict:
+        return 'unreadable'
+    state = rec.get('state')
+    if state == GATE_ORDER:
+        return 'seat-taken'
+    if state in GATE_PROCEED and rec.get('referencePresent') is False:
+        return 'proceed'
+    return f'ambiguous:{state}'
+
+
+def wait_order_gate(page, path, timeout, t0):
+    """신호가 올 때까지 기다린다. 판정은 read_order_outcome 이 한다."""
+    log(f'대체 게이트: 앞선 주문 판정을 기다린다(최대 {timeout:.1f}초) · {Path(path).name}')
+    deadline = time.monotonic() + max(0.0, timeout)
+    verdict = 'wait'
+    while time.monotonic() < deadline:
+        verdict = read_order_outcome(path)
+        if verdict != 'wait':
+            log(f'대체 게이트: 신호={verdict} (+{time.monotonic()-t0:.3f}s)')
+            return verdict
+        page.wait_for_timeout(50)
+    return 'timeout'
+
+
 def fire(page, snap, a, ledger, pl, retry, checkpoint=lambda: None, binding=None):
     """메모리 캡처로 현재 문서에서 조회→운임→필수 검증→주문을 보낸다. 주문 뒤 인계는 옵션에 따른다.
 
@@ -1157,6 +1225,12 @@ def fire(page, snap, a, ledger, pl, retry, checkpoint=lambda: None, binding=None
         log(f'필수 검증 {state} - 주문하지 않는다')
         return 2
 
+    if a.order_gate_file:
+        verdict = wait_order_gate(page, a.order_gate_file, a.order_gate_timeout, t0)
+        if verdict != 'proceed':
+            log(f'대체 게이트: {verdict} - 주문하지 않는다 (+{time.monotonic()-t0:.3f}s)')
+            return 0
+
     if a.state_bridge:
         started=time.monotonic()
         try:
@@ -1220,6 +1294,7 @@ def fire(page, snap, a, ledger, pl, retry, checkpoint=lambda: None, binding=None
             recovery.inspect_failure(r3, pl.quote, emit=log)
         return 2
     save_order_judgment(run_id,outcome.state)
+    write_order_outcome(a, outcome.state, r3)
     checkpoint()
     elapsed = response_received_mono - t0
     log(f'주문 status={r3.get("status")} {r3.get("elapsedMs",0):.0f}ms 판정={outcome.state} '

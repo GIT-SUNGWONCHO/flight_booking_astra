@@ -155,6 +155,12 @@ def order_args(a, at, health_at, state_dir):
         args += ['--observe-date', a.observe_date]
     if a.open_retry_gap_ms is not None:
         args += ['--open-retry-gap-ms', str(a.open_retry_gap_ms)]
+    if a.order_outcome_file:
+        args += ['--order-outcome-file', str(a.order_outcome_file)]
+    if a.order_gate_file:
+        args += ['--order-gate-file', str(a.order_gate_file)]
+    if a.order_gate_timeout is not None:
+        args += ['--order-gate-timeout', str(a.order_gate_timeout)]
     return args
 
 
@@ -165,6 +171,10 @@ def main():
                     help='예매 브라우저 포트. 9232·9243=와이프 스카이패스, 9242=본인 네이버')
     ap.add_argument('--live-state-dir', default='',
                     help='live 에서 이 상태 폴더를 쓴다(동시 실행 시 9232 외 모두). 기본 폴더는 줄 수 없다')
+    # 대체 예매 게이트(2026-09-24). 프레스티지가 좌석을 못 잡았을 때만 일반석을 주문한다.
+    ap.add_argument('--order-outcome-file', default='', help='주문 판정을 이 파일에 남긴다')
+    ap.add_argument('--order-gate-file', default='', help='주문 직전에 이 신호를 본다')
+    ap.add_argument('--order-gate-timeout', type=float, default=None, help='신호 대기 상한(초)')
     ap.add_argument('--target-date', required=True)
     ap.add_argument('--capture-iso', required=True, help='이미 열린 캡처 날짜 YYYY-MM-DD(목표와 다른 날)')
     ap.add_argument('--origin', default='CDG')
@@ -203,6 +213,9 @@ def main():
         return 2
     if a.mode == 'live' and a.observe_date:
         log('live 에서는 관측 조회를 섞지 않는다')
+        return 2
+    if a.order_outcome_file and a.order_gate_file:
+        log('한 실행이 신호를 쓰면서 동시에 기다릴 수는 없다')
         return 2
     if a.observer and a.port != 9232:
         log('계측 체인(9233)은 한 번만 띄운다 - --observer 는 9232 쪽에서만 쓴다')
