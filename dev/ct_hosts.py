@@ -6,7 +6,7 @@
   앱 트래픽 관찰(dev/app_trace.py) 전에 후보를 좁힌다.
 
 안전
-  crt.sh 공개 자료만 읽는다. 대한항공 서버에는 아무 요청도 보내지 않는다.
+  crt.sh(실패하면 Cert Spotter) 공개 자료만 읽는다. 대한항공 서버에는 아무 요청도 보내지 않는다.
   --resolve 를 주면 후보 호스트의 DNS 조회만 한다(HTTP 요청 없음).
 
 사용 (집 PC, 실전 준비와 무관하게 아무 때나)
@@ -20,6 +20,9 @@ import json
 import re
 import socket
 import sys
+import time
+import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -27,7 +30,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / 'dev-shots' / 'research'
 DOMAIN = 'koreanair.com'
-URL = 'https://crt.sh/?q=%25.{d}&output=json'
+# crt.sh 는 부하가 크면 404/502/타임아웃을 낸다. 만료 제외(결과가 작다) → 전체 순으로 시도하고,
+# 둘 다 실패하면 Cert Spotter 로 넘어간다.
+CRTSH = ('https://crt.sh/?q=%25.{d}&output=json&exclude=expired',
+         'https://crt.sh/?q=%25.{d}&output=json')
+CERTSPOTTER = 'https://api.certspotter.com/v1/issuances?domain={d}&include_subdomains=true&expand=dns_names'
+UA = {'User-Agent': 'Mozilla/5.0 astra-ct-hosts'}
 
 # 앱·API 쪽일 가능성이 있는 이름. 순위 매기기용이지 판정이 아니다.
 INTEREST = re.compile(r'api|app|mobile|mapi|gw|gateway|ios|iphone|native|award|booking|mileage|skypass|ibe|m\.', re.I)
@@ -42,6 +50,42 @@ def hosts_from_ct(rows, domain=DOMAIN):
             if name == domain or name.endswith('.' + domain):
                 out.add(name)
     return sorted(out)
+
+
+def names_from_certspotter(items):
+    """Cert Spotter 응답을 crt.sh 행 모양으로 바꾼다."""
+    return [{'name_value': '\n'.join(it.get('dns_names', []))} for it in items]
+
+
+def get_json(url, timeout):
+    req = urllib.request.Request(url, headers=UA)
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.load(r)
+
+
+def fetch_rows(timeout, tries=3, get=get_json, log=print, pause=5):
+    """crt.sh 두 가지를 각각 재시도하고, 안 되면 Cert Spotter 를 쪽수 넘겨 가며 읽는다."""
+    for tpl in CRTSH:
+        url = tpl.format(d=DOMAIN)
+        for i in range(1, tries + 1):
+            try:
+                rows = get(url, timeout)
+                log(f'crt.sh 성공 ({len(rows)}건): {url}')
+                return rows, 'crt.sh'
+            except (urllib.error.URLError, TimeoutError, ValueError) as e:
+                log(f'crt.sh 실패 {i}/{tries}: {e}')
+                if i < tries:
+                    time.sleep(pause)
+    rows, after = [], None
+    for _ in range(100):
+        url = CERTSPOTTER.format(d=DOMAIN) + (f'&after={urllib.parse.quote(str(after))}' if after else '')
+        page = get(url, timeout)
+        if not page:
+            break
+        rows += names_from_certspotter(page)
+        after = page[-1].get('id')
+    log(f'Cert Spotter 사용 ({len(rows)}건)')
+    return rows, 'certspotter'
 
 
 def interesting(hosts):
@@ -61,11 +105,10 @@ def main(argv=None):
     ap.add_argument('--timeout', type=int, default=120)
     a = ap.parse_args(argv)
 
-    with urllib.request.urlopen(URL.format(d=DOMAIN), timeout=a.timeout) as r:
-        rows = json.load(r)
+    rows, source = fetch_rows(a.timeout)
     hosts = hosts_from_ct(rows)
     cand = interesting(hosts)
-    result = {'certs': len(rows), 'hosts': hosts, 'candidates': cand}
+    result = {'source': source, 'certs': len(rows), 'hosts': hosts, 'candidates': cand}
     if a.resolve:
         result['dns'] = {h: resolve(h) for h in cand}
 
