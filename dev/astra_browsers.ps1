@@ -7,10 +7,11 @@ $root = Split-Path -Parent $PSScriptRoot
 # 인자 없이 부르면 운영 2개(9232·9233)만 다루고, 나머지는 -Port 로 지정해야 열린다
 # (2026-09-23 사용자 결정: 다계정 구성).
 $all = @(@{Port=9232; Profile='.debug-profile'}, @{Port=9233; Profile='.debug-profile2'},
-         @{Port=9242; Profile='.api-profile'}, @{Port=9243; Profile='.debug-profile3'})
+         @{Port=9242; Profile='.api-profile'}, @{Port=9243; Profile='.debug-profile3'},
+         @{Port=9244; Profile='.api-profile2'})
 $targets = if ($Port) { @($all | Where-Object { $_.Port -eq $Port }) }
            else { @($all | Where-Object { $_.Port -lt 9242 }) }
-if (-not $targets.Count) { throw 'Only Astra ports 9232, 9233, 9242 and 9243 are allowed' }
+if (-not $targets.Count) { throw 'Only Astra ports 9232, 9233, 9242, 9243 and 9244 are allowed' }
 foreach ($t in $targets) {
   $profile = [IO.Path]::GetFullPath((Join-Path $root $t.Profile))
   if (-not $profile.StartsWith([IO.Path]::GetFullPath($root) + '\', [StringComparison]::OrdinalIgnoreCase)) {

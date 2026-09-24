@@ -236,7 +236,7 @@ def main():
     ap.add_argument('--origin', choices=['ICN','CDG'])
     ap.add_argument('--destination', choices=['ICN','CDG'])
     # 9232 는 운영 예매 브라우저다. 읽기 전용으로만 붙으며 주문을 만들지 않는다.
-    ap.add_argument('--port', type=int, default=9242, choices=[9232, 9233, 9242, 9243],
+    ap.add_argument('--port', type=int, default=9242, choices=[9232, 9233, 9242, 9243, 9244],
                     help='붙을 CDP 포트. 기본 9242(연구), 9232=예매·9233=계측 관측용')
     a = ap.parse_args()
     if not 1 <= a.seconds <= 900:

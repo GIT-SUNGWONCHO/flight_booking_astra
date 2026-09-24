@@ -7,7 +7,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright, expect, Error
 
 
-ROLES = {9232: '예매', 9233: '계측', 9242: '예매2', 9243: '예매3'}
+ROLES = {9232: '예매', 9233: '계측', 9242: '예매2', 9243: '예매3', 9244: '예매4'}
 # 9242 = 본인 계정 두 번째 예매(2026-09-22), 9243 = 와이프 계정 두 번째 예매(2026-09-23)
 
 
