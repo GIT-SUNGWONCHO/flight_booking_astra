@@ -3,9 +3,14 @@ param([switch]$Restart, [int]$Port = 0)
 $ErrorActionPreference = 'Stop'
 $chrome = 'C:\Program Files\Google\Chrome\Application\chrome.exe'
 $root = Split-Path -Parent $PSScriptRoot
-$targets = @(@{Port=9232; Profile='.debug-profile'}, @{Port=9233; Profile='.debug-profile2'})
-if ($Port) { $targets = @($targets | Where-Object { $_.Port -eq $Port }) }
-if (-not $targets.Count) { throw 'Only Astra ports 9232 and 9233 are allowed' }
+# 9242(.api-profile, 본인)·9243(.debug-profile3, 와이프)은 두 번째 예매용이다.
+# 인자 없이 부르면 운영 2개(9232·9233)만 다루고, 나머지는 -Port 로 지정해야 열린다
+# (2026-09-23 사용자 결정: 다계정 구성).
+$all = @(@{Port=9232; Profile='.debug-profile'}, @{Port=9233; Profile='.debug-profile2'},
+         @{Port=9242; Profile='.api-profile'}, @{Port=9243; Profile='.debug-profile3'})
+$targets = if ($Port) { @($all | Where-Object { $_.Port -eq $Port }) }
+           else { @($all | Where-Object { $_.Port -lt 9242 }) }
+if (-not $targets.Count) { throw 'Only Astra ports 9232, 9233, 9242 and 9243 are allowed' }
 foreach ($t in $targets) {
   $profile = [IO.Path]::GetFullPath((Join-Path $root $t.Profile))
   if (-not $profile.StartsWith([IO.Path]::GetFullPath($root) + '\', [StringComparison]::OrdinalIgnoreCase)) {

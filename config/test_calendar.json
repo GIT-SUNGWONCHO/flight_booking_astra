@@ -5,6 +5,8 @@
   "end": "2026-09-25",
   "weekends": true,
   "excludedDepartureWeekdays": [6],
+  "_note_departureExclusionOverrides": "출발일 요일 제외를 적용하지 않는 실행일. 2026-09-23 사용자 결정: 9/24 는 런던으로 실전 테스트한다(9/25 본선 전 마지막 검증일).",
+  "departureExclusionOverrides": ["2026-09-24"],
   "openDaysAhead": 360,
   "prepareTime": "08:20:00",
   "openTime": "09:00:00",
@@ -21,7 +23,8 @@
     {"runDate": "2026-09-25", "origin": "FCO", "destination": "ICN", "departureDate": "2027-09-20"}
   ],
   "weekdayRoutes": {"confirmedOn": "2026-09-19", "fromRunDate": "2026-09-19",
-    "note": "출발일 요일로 노선을 정한다. 월·수·토 FCO→ICN(KE932 운항일), 그 외 CDG→ICN(KE902). 일요일은 위 제외 규칙",
-    "rules": [{"weekdays": [0, 2, 5], "origin": "FCO", "destination": "ICN", "flight": "932"}],
+    "note": "출발일 요일로 노선을 정한다. 월·수·토 FCO→ICN(KE932), 일요일 LHR→ICN(KE908), 그 외 CDG→ICN(KE902). 2026-09-23 실측: 일요일 CDG→ICN 은 KE 운항편이 없고 공동운항 AF5902 만 있다.",
+    "rules": [{"weekdays": [0, 2, 5], "origin": "FCO", "destination": "ICN", "flight": "932"},
+              {"weekdays": [6], "origin": "LHR", "destination": "ICN", "flight": "908"}],
     "default": {"origin": "CDG", "destination": "ICN", "flight": "902"}}
 }

@@ -10,10 +10,12 @@ from test_calendar import plan,KST,rehearsal_plan
 from playwright.sync_api import sync_playwright
 
 # 주말 실행은 켜져 있다(weekends=true). 출발일 일요일만 제외한다.
-for day in ['2026-09-17','2026-09-24']:
+# 단 2026-09-24 는 departureExclusionOverrides 로 열어 뒀다(사용자 결정: 런던 실전).
+for day in ['2026-09-17']:
     assert not plan(day)['enabled']
-for day in ['2026-09-19','2026-09-20']:
+for day in ['2026-09-19','2026-09-20','2026-09-24']:
     assert plan(day)['enabled']
+assert plan('2026-09-24')['origin']=='LHR' and plan('2026-09-24')['flight']=='908'
 assert plan('2026-09-20')['origin']=='FCO' and plan('2026-09-20')['flight']=='932'
 assert plan('2026-09-25')['origin']=='FCO' and plan('2026-09-25')['important']
 assert not plan('2026-09-18')['important']

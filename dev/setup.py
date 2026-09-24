@@ -24,14 +24,18 @@ USER = ROOT / "userscript" / "ke-award-macro.user.js"
 CDP = "http://localhost:9232"
 
 # 로그인 방식(사용자 확정 2026-09-12). 기본은 본인 네이버 연동이다.
-# skypass 복귀는 9232 에만 적용한다 - 9233 계측과 9242 본인 예매는 언제나 본인 네이버다.
+# skypass(와이프 계정) 복귀는 SKYPASS_PORTS 에만 적용한다 - 9233 계측과 9242 본인 예매는
+# 언제나 본인 네이버다.
 # 9242 는 2026-09-22 사용자 요청으로 '본인 계정 두 번째 예매'에 쓴다(프로필 .api-profile).
-PROFILE_BY_PORT = {9232: ".debug-profile", 9233: ".debug-profile2", 9242: ".api-profile"}
+# 9243 은 2026-09-23 사용자 요청으로 '와이프 계정 두 번째 예매'에 쓴다(프로필 .debug-profile3).
+PROFILE_BY_PORT = {9232: ".debug-profile", 9233: ".debug-profile2",
+                   9242: ".api-profile", 9243: ".debug-profile3"}
+SKYPASS_PORTS = frozenset({9232, 9243})
 
 
 def login_mode(env, port):
     return "skypass" if ((env.get("KE_LOGIN_MODE") or "").strip().lower() == "skypass"
-                         and port == 9232) else "naver"
+                         and port in SKYPASS_PORTS) else "naver"
 
 
 def mode_marker(port):
@@ -336,10 +340,10 @@ def main() -> int:
         except (IndexError, ValueError):
             pass
         mode = login_mode(env, port)
-        # 9232 는 표시가 현재 정책과 같을 때만 아래 조기 반환을 허용한다.
+        # 와이프 계정 포트(9232·9243)는 표시가 현재 정책과 같을 때만 아래 조기 반환을 허용한다.
         # 표시가 없거나 다르면 정상 흐름으로 내려가 로그인 상태를 실제로 확인한다.
         # (로그아웃 상태면 그대로 정책대로 재로그인하고 표시를 새로 쓴다.)
-        marker_ok = (port != 9232) or (read_mode_marker(port) == mode)
+        marker_ok = (port not in SKYPASS_PORTS) or (read_mode_marker(port) == mode)
 
         # 이미 달력이면 끝 (도착지를 바꿔야 하면 그대로 진행한다)
         if goal_now(page.url, departure) and not want and marker_ok:
@@ -376,16 +380,16 @@ def main() -> int:
                 break
             page.wait_for_timeout(1000)
             inject()
-        if logged and port == 9232:
+        if logged and port in SKYPASS_PORTS:
             seen = read_mode_marker(port)
             if seen != mode:
                 # 살아 있는 세션이 어느 계정인지는 화면만 보고 알 수 없다.
                 # 로그아웃 상태였다면 여기 오지 않고 아래에서 정책대로 재로그인한다.
                 where = f"'{seen}' 방식" if seen else "기록 없음"
-                log(f"9232 세션 표시가 {where} 이고 현재 정책은 '{mode}' 다 - 사용자 확인 필요")
+                log(f"{port} 세션 표시가 {where} 이고 현재 정책은 '{mode}' 다 - 사용자 확인 필요")
                 print(json.dumps({"ok": False, "url": page.url,
-                    "why": f"로그인 확인 필요: 현재 9232 세션이 {where} 인데 정책은 '{mode}' 다. "
-                           f"그 계정이 맞으면 `dev/setup.py --port 9232 --confirm-login {mode}` 로 확인하고, "
+                    "why": f"로그인 확인 필요: 현재 {port} 세션이 {where} 인데 정책은 '{mode}' 다. "
+                           f"그 계정이 맞으면 `dev/setup.py --port {port} --confirm-login {mode}` 로 확인하고, "
                            f"아니면 사이트에서 로그아웃한 뒤 다시 준비한다"}, ensure_ascii=False))
                 return 2
         if not logged:
