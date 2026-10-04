@@ -74,7 +74,11 @@ def log(msg):
 PREPARING = 'preparing'
 # 준비 중 관찰한 주문 요청이 전부 차단됐다는 **로컬** 판정. 서버 확인이 아니다.
 PREP_CLEAN = 'prep-no-unblocked-order'
-NON_BLOCKING = ('resolved', PREP_CLEAN)
+# 새 실행을 막지 않는 상태. PREPARING 은 준비 통과 도중 죽은 흔적이다(2026-10-04 추가).
+# 준비 통과는 주문 요청을 막은 채 '캡처 날짜'로 돈다 - 설령 새어 나갔어도 목표 날짜의 좌석이 아니고
+# 미결제로 풀린다. 이것을 막으면 준비 중 한 번 죽은 실행이 그날 다시 뜨지 못한다(9/25 C).
+# 막지 못한 주문 요청을 실제로 본 경우는 'prep-order-possible' 로 따로 남고, 그것은 막는다.
+NON_BLOCKING = ('resolved', PREP_CLEAN, PREPARING)
 
 
 def intent_path(day):
@@ -105,6 +109,88 @@ def unresolved_intents():
             if rec:
                 found[day] = rec
     return found
+
+
+def intent_files():
+    return sorted(STATE.glob('order-intent-*.json')) if STATE.exists() else []
+
+
+def read_record(path):
+    try:
+        rec = json.loads(Path(path).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {'state': 'unreadable'}
+    return rec if type(rec) is dict else {'state': 'unreadable'}
+
+
+def stale_records(now):
+    """12시간(permit.STALE_AFTER) 넘은 주문 기록. (파일 목록, {이름: 상태}) 를 돌려준다."""
+    files, states = [], {}
+    for path in intent_files():
+        day = path.stem[len('order-intent-'):]
+        rec = read_record(path)
+        if permit.is_stale(rec, now, day=day):
+            files.append(path)
+            states[day] = rec.get('state')
+    held = permit.existing_permit(STATE)
+    if held and permit.is_stale(held, now, path=permit.permit_path(STATE)):
+        files.append(permit.permit_path(STATE))
+        states['permit'] = held.get('runId', 'unreadable')
+    return files, states
+
+
+def clear_stale(now):
+    """지난 실행의 주문 기록을 보관 폴더로 옮긴다. 어제의 기록이 오늘 실행을 막지 않게 한다.
+
+    12시간 안의 기록은 건드리지 않는다 - 같은 날 다시 실행해 주문을 또 보내는 것은 그대로 막힌다.
+    """
+    files, states = stale_records(now)
+    dest = permit.archive(STATE, files, label='auto', now=now, detail=states,
+                          reason=f'{permit.STALE_AFTER // 3600}시간 넘은 주문 기록 자동 보관')
+    if dest:
+        log(f'지난 실행의 주문 기록 {len(files)}개를 보관했다(삭제 아님): {dest}')
+    return dest
+
+
+def release_again(now):
+    """사용자가 --again 으로 '그래도 다시 보낸다'고 했다. 12시간 안의 기록도 보관으로 옮긴다."""
+    files = intent_files() + [permit.permit_path(STATE)]
+    states = {p.name: read_record(p).get('state', read_record(p).get('runId')) for p in files if p.exists()}
+    dest = permit.archive(STATE, files, label='again', now=now, detail=states,
+                          reason='사용자 --again: 오늘 기록을 두고 다시 주문한다')
+    if dest:
+        log(f'--again: 오늘의 주문 기록을 보관하고 새로 시작한다(삭제 아님): {dest}')
+        log('  앞선 주문이 좌석을 잡았다면 이번 주문으로 좌석이 하나 더 잡힐 수 있다.')
+    return dest
+
+
+def _hhmm(record):
+    at = record.get('at') if type(record) is dict else None
+    return at[11:16] if isinstance(at, str) and len(at) >= 16 else '시각 미상'
+
+
+def blocked_text(pending, held):
+    """새 실행을 막는 이유를 사람 말로 적는다. 무엇을 확인하고 어떻게 풀지까지."""
+    lines = []
+    for day, rec in sorted(pending.items()):
+        state, when = rec.get('state'), f'{day} {_hhmm(rec)}'
+        if state == 'ordered':
+            lines.append(f'이 계정으로 이미 좌석을 잡았다({when}). 결제창이나 대한항공 예약 조회에서 결제하면 된다.')
+        elif state == 'unknown' and rec.get('why') == 'business-error':
+            lines.append(f'주문이 거절됐다({when}). 좌석은 잡히지 않았다.')
+        elif state in ('unknown', 'sending'):
+            lines.append(f'주문을 보냈지만 결과를 확인하지 못했다({when}). 좌석이 잡혔을 수 있다 - '
+                         '대한항공 예약 조회를 먼저 본다.')
+        elif state == 'prep-order-possible':
+            lines.append(f'준비 중에 주문 요청이 막히지 않고 나갔을 수 있다({when}). 대한항공 예약 조회를 먼저 본다.')
+        else:
+            lines.append(f'주문 기록을 읽을 수 없다({day}, 상태 {state}).')
+    if held and not pending:
+        lines.append(f'주문을 보낸 표시(전송권)가 남아 있다({held.get("day", "")} {_hhmm(held)}).')
+    lines.append('같은 주문을 또 보내면 좌석이 두 개 잡힐 수 있어 여기서 멈춘다.')
+    lines.append(f'그래도 다시 보내려면 --again 을 붙여 실행한다. 이 기록은 {permit.STALE_AFTER // 3600}시간 뒤 '
+                 '자동으로 정리된다.')
+    return lines
 
 
 def record_intent(day, state, **extra):
@@ -185,7 +271,10 @@ def main():
                          '그 runId 의 주문 증거에 예약번호·주문번호가 모두 없을 때만 허용. 사이트 접속 없음')
     ap.add_argument('--release-reason', default='', help='--release-no-reference 기록 사유(필수)')
     ap.add_argument('--status', action='store_true',
-                    help='--day 의 주문 의도·전송권 상태만 읽어 보여 준다. 브라우저·사이트 접속 없음')
+                    help='주문 기록(의도·전송권)이 새 실행을 막는지 읽어 보여 준다. 브라우저·사이트 접속 없음')
+    ap.add_argument('--again', action='store_true',
+                    help='12시간 안에 이미 주문을 보낸 기록이 있어도 그 기록을 보관하고 다시 실행한다. '
+                         '앞선 주문이 좌석을 잡았다면 좌석이 하나 더 잡힐 수 있다. 사용자가 판단해 붙인다')
     ap.add_argument('--dry', action='store_true',
                     help='API 주문 전송 직전까지만. 조회·운임 요청은 실제로 보낸다. 캡처 준비의 '
                          '주문 요청은 막지만 실사이트에서 막힘을 확인하지 않았다(무주문 보장 아님)')
@@ -267,11 +356,20 @@ def main():
             log(f'결과: {out}')
             return 0 if out.get('matched') and out['steps'].get('payment') else 2
 
-    # --dry 도 조회·운임을 보내고 캡처 준비를 거친다. 미해결 주문·남은 전송권이 있으면 모두 거부한다.
-    pending = unresolved_intents()
     if (a.resume_preparation or a.retry_after_handoff_failure or a.retry_after_checkout) and not a.retry_of:
         log('준비 재개에는 retry-of가 필요하다')
         return 2
+    if a.again and a.retry_of:
+        log('--again 과 --retry-of 는 함께 쓰지 않는다')
+        return 2
+    if not a.retry_of:
+        # 지난 실행의 기록은 여기서 스스로 치운다. 명시 재시험(--retry-of)은 그 기록을 대조하므로 건드리지 않는다.
+        now = datetime.now(KST)
+        clear_stale(now)
+        if a.again:
+            release_again(now)
+    # --dry 도 조회·운임을 보내고 캡처 준비를 거친다. 12시간 안의 미해결 주문·전송권이 있으면 모두 거부한다.
+    pending = unresolved_intents()
     a.retry_claim=None
     if a.retry_of:
         if not a.state_bridge or a.dry:
@@ -287,14 +385,11 @@ def main():
             log('명시 재시험 기록이 불일치하거나 이미 소비됐다 - 실행하지 않음')
             return 2
         log('사용자 요청 새 시험 1회: 이전 unknown 기록 보존, 서버 해제 확인 아님')
-    if pending and a.retry_claim is None:
-        log(f'이전 응답 검증 미해결 기록이 있다: {pending}. '
-            '예약 목록으로 좌석 확보·해제를 판단할 수 없다. 기록을 보존하고 이전 시도 처리 절차를 확인한다.')
-        return 2
     held = permit.existing_permit(STATE)
-    if held and a.retry_claim is None:
-        log(f'주문 전송권이 이미 쓰였다: {held}. 새 주문을 보내지 않는다. '
-            '예약 목록에 없다는 이유로 전송권을 삭제하지 않는다.')
+    if (pending or held) and a.retry_claim is None:
+        log('**새 주문을 보내지 않는다.**')
+        for line in blocked_text(pending, held):
+            log('  ' + line)
         return 2
     # 실행일과 발사 시각은 시작할 때 한 번 고정한다(D4).
     try:
@@ -404,24 +499,24 @@ def release_no_reference(day, reason):
 
 
 def show_status(day):
-    """읽기 전용 상태. 주문 의도·전송권을 보여 주고 사용자가 할 일을 알린다. 아무것도 바꾸지 않는다."""
-    intent = None
-    if intent_path(day).exists():
-        try:
-            intent = json.loads(intent_path(day).read_text(encoding='utf-8'))
-        except (OSError, ValueError):
-            intent = {'state': 'unreadable'}
+    """읽기 전용 상태. 새 실행이 막히는지와 그 이유를 알린다. 아무것도 바꾸지 않는다."""
+    now = datetime.now(KST)
+    old_files, old_states = stale_records(now)
+    old_names = {p.name for p in old_files}
+    pending = {d: r for d, r in unresolved_intents().items() if f'order-intent-{d}.json' not in old_names}
     held = permit.existing_permit(STATE)
-    blocking = unresolved_intents()
-    log(f'실행일 {day}')
-    log(f'  주문 의도: {intent}')
-    log(f'  전송권(날짜 무관): {held}')
-    log(f'  모든 실행일의 미해결 의도: {blocking}')
-    if blocking or held:
-        log('  현재 실행기는 새 실행을 거부한다. unknown은 로컬 판정 실패이며 좌석 보유 증거가 아니다. '
-            '예약 목록으로 해제를 판정하거나 기록을 임의 삭제하지 않는다. 별도 재시도 처리 절차가 필요하다.')
+    if held and permit.PERMIT_NAME in old_names:
+        held = None
+    log(f'상태 폴더 {STATE}')
+    if old_files:
+        log(f'  {permit.STALE_AFTER // 3600}시간 넘은 주문 기록 {len(old_files)}개: {old_states}')
+        log('  → 다음 실행이 시작할 때 자동으로 보관된다. 지금은 옮기지 않았다.')
+    if pending or held:
+        log('  **지금 실행하면 주문을 보내지 않는다.**')
+        for line in blocked_text(pending, held):
+            log('  ' + line)
         return 2
-    log('  남은 주문 의도·전송권 없음')
+    log('  새 실행을 막는 기록 없음')
     return 0
 
 

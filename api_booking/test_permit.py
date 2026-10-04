@@ -31,6 +31,65 @@ def _contend(state_dir, day, go_file, ready_file, result_file, index):
     Path(result_file).write_text('1' if got else '0', encoding='utf-8')
 
 
+class StaleRecordTests(unittest.TestCase):
+    """12시간 넘은 주문 기록은 새 실행을 막지 않는다(2026-10-04). 그 판정과 보관."""
+
+    NOW = datetime(2099, 1, 2, 8, 20, 0, tzinfo=KST)
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.dir, True)
+
+    def test_age_comes_from_the_written_time(self):
+        self.assertTrue(permit.is_stale({'at': '2099-01-01T09:00:02+09:00'}, self.NOW))
+        self.assertFalse(permit.is_stale({'at': '2099-01-01T20:20:01+09:00'}, self.NOW))
+        self.assertTrue(permit.is_stale({'at': '2099-01-01T20:20:00+09:00'}, self.NOW))
+
+    def test_run_day_alone_counts_as_the_end_of_that_day(self):
+        # 시각이 없으면 그날의 끝으로 본다 = 덜 오래된 쪽 = 막는 쪽.
+        self.assertFalse(permit.is_stale({'state': 'unknown'}, self.NOW, day='2099-01-01'))
+        self.assertTrue(permit.is_stale({'state': 'unknown'}, self.NOW, day='2098-12-31'))
+
+    def test_unreadable_record_falls_back_to_the_file_time(self):
+        path = self.dir / 'order-permit.json'
+        path.write_text('not json', encoding='utf-8')
+        real_now = datetime.now(KST)
+        self.assertFalse(permit.is_stale({'state': 'unreadable'}, real_now, path=path))
+        self.assertTrue(permit.is_stale({'state': 'unreadable'}, real_now + timedelta(hours=13), path=path))
+
+    def test_unknown_time_is_not_stale(self):
+        self.assertFalse(permit.is_stale({'at': 'yesterday'}, self.NOW))
+        self.assertFalse(permit.is_stale({'at': '2099-01-01T09:00:00'}, self.NOW))   # 시간대 없음
+        self.assertFalse(permit.is_stale(None, self.NOW))
+
+    def test_archive_moves_and_never_deletes(self):
+        a = self.dir / 'order-permit.json'
+        b = self.dir / 'order-intent-2099-01-01.json'
+        a.write_text('{"runId": "x"}', encoding='utf-8')
+        b.write_text('{"state": "ordered"}', encoding='utf-8')
+        dest = permit.archive(self.dir, [a, b, self.dir / 'missing.json'], label='auto',
+                              reason='시험', now=self.NOW, detail={'k': 'v'})
+        self.assertEqual(dest.parent.name, 'released')
+        self.assertTrue(dest.name.endswith('-auto'))
+        self.assertFalse(a.exists() or b.exists())
+        self.assertEqual((dest / 'order-permit.json').read_text(encoding='utf-8'), '{"runId": "x"}')
+        note = json.loads((dest / 'release.json').read_text(encoding='utf-8'))
+        self.assertEqual((note['label'], note['files']),
+                         ('auto', ['order-permit.json', 'order-intent-2099-01-01.json']))
+
+    def test_archive_with_nothing_makes_no_folder(self):
+        self.assertIsNone(permit.archive(self.dir, [self.dir / 'none.json'], label='auto',
+                                         reason='시험', now=self.NOW))
+        self.assertFalse((self.dir / 'released').exists())
+
+    def test_two_archives_in_the_same_second_do_not_collide(self):
+        for i in range(2):
+            f = self.dir / 'order-permit.json'
+            f.write_text(str(i), encoding='utf-8')
+            permit.archive(self.dir, [f], label='again', reason='시험', now=self.NOW)
+        self.assertEqual(len(list((self.dir / 'released').iterdir())), 2)
+
+
 class PermitTests(unittest.TestCase):
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp())

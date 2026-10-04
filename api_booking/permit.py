@@ -3,9 +3,14 @@
 전송권
   주문 요청(inputTravellers)을 보내기 **직전**에 전송권 파일 하나(`order-permit.json`,
   날짜와 무관)를 `O_CREAT|O_EXCL`로 만든다. 운영체제가 원자적으로 하나만 성공시키므로
-  동시에 시작한 두 프로세스 중 하나만 보낸다. 자정을 넘긴 재시작·실행일이 다른 실행도 같은
-  파일에 막힌다(검토 9aaff071 P1). 파일은 자동으로 지우지 않는다. 남아 있으면 이후 모든 전송을
-  막는다. 사용자가 정상 예약 조회로 확인하고 직접 치우기 전에는 새 주문이 나가지 않는다.
+  동시에 시작한 두 프로세스 중 하나만 보낸다. 자정을 넘긴 재시작도 같은 파일에 막힌다
+  (검토 9aaff071 P1). 파일은 **쓰인 지 12시간(STALE_AFTER)이 지나면** 다음 실행이 시작할 때
+  보관 폴더로 옮긴다(삭제 아님). 그 안에는 남아서 새 주문을 막는다 - 사용자가 --again 으로
+  다시 보내겠다고 하기 전까지.
+
+  왜 12시간인가(2026-10-04 사용자 결정): 미결제 좌석 보유는 10~32분이면 풀린다(FACTS). 어제의
+  전송권은 중복 주문을 막는 구실을 못 하고 오늘 실행만 막았다 - 매 실전 뒤 사람이 파일을 옮겨야
+  했다. 같은 날 다시 실행해 주문을 또 보내는 사고는 그대로 막는다.
   파일에는 실행일·실행 표지·PID·목표·시각만 쓰고 계정·주문 참조는 쓰지 않는다.
   생성 뒤 파일과 부모 디렉터리를 동기화한다(POSIX). Windows 디렉터리 동기화는 하지 못한다.
 
@@ -28,6 +33,7 @@ from pathlib import Path
 
 PERMIT_NAME = 'order-permit.json'
 DEFAULT_LATE_LIMIT = 3.0
+STALE_AFTER = 12 * 3600   # 초. 이보다 오래된 주문 기록은 새 실행을 막지 않는다
 
 
 def permit_path(state_dir):
@@ -99,6 +105,55 @@ def acquire(state_dir, *, day, run_id, target, now_iso):
         os.close(fd)
     _fsync_dir(path.parent)
     return Permit(path, run_id)
+
+
+def record_time(record, tz, *, path=None, day=None):
+    """기록이 쓰인 시각. 내용의 at → 실행일(day)의 끝 → 파일 수정 시각 순으로 본다. 모르면 None.
+
+    실행일만 알 때는 그날 23:59:59 로 본다. 가장 늦은 쪽으로 잡아야 덜 오래된 것으로 친다.
+    """
+    at = record.get('at') if type(record) is dict else None
+    if isinstance(at, str):
+        try:
+            when = datetime.fromisoformat(at)
+            if when.tzinfo is not None:
+                return when
+        except ValueError:
+            pass
+    if day and re.fullmatch(r'\d{4}-\d{2}-\d{2}', day):
+        return datetime.combine(datetime.strptime(day, '%Y-%m-%d').date(), dtime(23, 59, 59), tz)
+    if path is not None:
+        try:
+            return datetime.fromtimestamp(Path(path).stat().st_mtime, tz)
+        except OSError:
+            return None
+    return None
+
+
+def is_stale(record, now, *, path=None, day=None, limit=STALE_AFTER):
+    """이 기록이 limit 초보다 오래됐는가. 쓰인 시각을 모르면 False(막는 쪽)."""
+    when = record_time(record, now.tzinfo, path=path, day=day)
+    return when is not None and (now - when).total_seconds() >= limit
+
+
+def archive(state_dir, paths, *, label, reason, now, detail=None):
+    """기록을 지우지 않고 released/<시각>-<label>/ 로 옮긴다. 옮긴 폴더를 돌려준다(옮길 것이 없으면 None)."""
+    paths = [Path(p) for p in paths if Path(p).exists()]
+    if not paths:
+        return None
+    base = Path(state_dir) / 'released' / f'{now.strftime("%Y%m%dT%H%M%S")}-{label}'
+    dest, n = base, 1
+    while dest.exists():
+        n += 1
+        dest = base.with_name(f'{base.name}-{n}')
+    dest.mkdir(parents=True)
+    durable_json(dest / 'release.json', {
+        'releasedAt': now.isoformat(), 'label': label, 'reason': reason,
+        'files': [p.name for p in paths], 'detail': detail,
+        'meaning': '보관이지 삭제가 아니다. 서버가 좌석을 풀었는지 확인한 것이 아니다'})
+    for p in paths:
+        p.replace(dest / p.name)
+    return dest
 
 
 def parse_at(day, at, tz):

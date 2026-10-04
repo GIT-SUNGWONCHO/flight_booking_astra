@@ -161,6 +161,8 @@ def order_args(a, at, health_at, state_dir):
         args += ['--order-gate-file', str(a.order_gate_file)]
     if a.order_gate_timeout is not None:
         args += ['--order-gate-timeout', str(a.order_gate_timeout)]
+    if a.again:
+        args += ['--again']
     return args
 
 
@@ -198,6 +200,8 @@ def main():
     ap.add_argument('--health-before-min', type=float, default=10.0, help='rehearsal: 발사 몇 분 전에 점검')
     ap.add_argument('--no-restart', action='store_true', help='live: Chrome 9232 재기동을 하지 않는다')
     ap.add_argument('--max-attempts', type=int, default=3)
+    ap.add_argument('--again', action='store_true',
+                    help='오늘 이미 주문을 보낸 기록이 있어도 그 기록을 보관하고 다시 실행한다(live_order --again)')
     a = ap.parse_args()
     if a.capture_iso == a.target_date:
         log('캡처 날짜는 목표와 다른 이미 열린 날짜여야 한다')

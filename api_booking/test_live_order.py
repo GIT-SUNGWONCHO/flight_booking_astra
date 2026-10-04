@@ -227,12 +227,14 @@ class PrepAndFireFlowTests(FlowHarness):
         code, connect, _, _ = self.run_main('--dry', tmp=self.tmp)
         self.assertEqual((code, connect.call_count), (2, 0))
 
-    def test_prep_crash_leaves_a_blocking_marker(self):
+    def test_prep_crash_marker_does_not_block_the_next_run(self):
+        # 2026-10-04: 준비 통과 도중 죽은 흔적은 막지 않는다. 주문 요청은 막힌 채였고 캡처 날짜였다.
+        # 9/25 에 이것 때문에 한 실행이 그날 다시 뜨지 못했다. 막지 못한 주문을 본 경우는 위 시험이 지킨다.
         with self.assertRaises(RuntimeError):
             self.run_main('--dry', capture_error=RuntimeError('crash'))
         self.assertEqual(self.intent_state(), live_order.PREPARING)
         code, connect, _, _ = self.run_main('--dry', tmp=self.tmp)
-        self.assertEqual((code, connect.call_count), (2, 0))
+        self.assertEqual((code, connect.call_count), (0, 1))
 
     def test_incomplete_prep_is_not_used(self):
         steps = dict(FULL_STEPS, contact=False)
@@ -412,14 +414,86 @@ class SendSafetyTests(FlowHarness):
         code, connect, calls, _ = self.run_main(tmp=self.tmp)
         self.assertEqual((code, connect.call_count, calls), (2, 0, []))
 
+    def released(self, label):
+        return sorted((self.tmp / 'released').glob(f'*-{label}*')) if (self.tmp / 'released').exists() else []
+
     def test_restart_after_midnight_is_still_refused(self):
         # 검토 9aaff071 P1: 자정 직전 주문 뒤 다음 날 기본 실행일로 재시작해도 막는다.
-        self.run_main()
-        (self.tmp / 'order-intent-2099-01-01.json').write_text(json.dumps({'state': 'resolved'}),
-                                                              encoding='utf-8')
-        next_day = FakeClock(datetime(2099, 1, 2, 8, 0, 0, tzinfo=live_order.KST))
-        code, connect, _, _ = self.run_main('--day', '2099-01-02', tmp=self.tmp, clock=next_day)
+        # 기준은 달력 날짜가 아니라 지난 시간(12시간)이다.
+        self.run_main(clock=FakeClock(datetime(2099, 1, 1, 23, 50, 0, tzinfo=live_order.KST)))
+        after_midnight = FakeClock(datetime(2099, 1, 2, 0, 10, 0, tzinfo=live_order.KST))
+        code, connect, _, _ = self.run_main('--day', '2099-01-02', tmp=self.tmp, clock=after_midnight)
         self.assertEqual((code, connect.call_count), (2, 0))
+        self.assertEqual(self.released('auto'), [])
+
+    def test_yesterdays_records_are_archived_and_todays_run_proceeds(self):
+        # 2026-10-04 사용자 결정: 어제의 주문 기록이 오늘 실행을 막지 않는다. 사람이 치우지 않아도 된다.
+        self.run_main()                                  # 2099-01-01 08:00 주문
+        old_permit = self.permit_file().read_text(encoding='utf-8')
+        next_day = FakeClock(datetime(2099, 1, 2, 8, 20, 0, tzinfo=live_order.KST))
+        code, connect, calls, _ = self.run_main('--day', '2099-01-02', tmp=self.tmp, clock=next_day)
+        self.assertEqual((code, connect.call_count), (0, 1))
+        self.assertIn('send:inputTravellers@calendar-fare-bonus', calls)
+        (folder,) = self.released('auto')
+        self.assertEqual(sorted(p.name for p in folder.iterdir()),
+                         ['order-intent-2099-01-01.json', 'order-permit.json', 'release.json'])
+        self.assertEqual((folder / 'order-permit.json').read_text(encoding='utf-8'), old_permit)
+        self.assertNotEqual(self.permit_file().read_text(encoding='utf-8'), old_permit)   # 오늘 것
+        self.assertTrue(any('보관했다' in x for x in self.logs))
+
+    def test_half_a_day_is_the_boundary(self):
+        self.run_main()                                  # 08:00
+        for hour, minute, want in ((19, 59, 2), (20, 0, 0)):
+            with self.subTest(at=f'{hour}:{minute:02d}'):
+                later = FakeClock(datetime(2099, 1, 1, hour, minute, 0, tzinfo=live_order.KST))
+                code, _, _, _ = self.run_main(tmp=self.tmp, clock=later)
+                self.assertEqual(code, want)
+
+    def test_again_archives_todays_records_and_sends(self):
+        self.run_main()
+        code, connect, _, _ = self.run_main(tmp=self.tmp)
+        self.assertEqual((code, connect.call_count), (2, 0))
+        code, connect, calls, _ = self.run_main('--again', tmp=self.tmp)
+        self.assertEqual((code, connect.call_count), (0, 1))
+        self.assertIn('send:inputTravellers@calendar-fare-bonus', calls)
+        (folder,) = self.released('again')
+        self.assertIn('order-permit.json', [p.name for p in folder.iterdir()])
+        self.assertTrue(any('하나 더 잡힐 수 있다' in x for x in self.logs))
+
+    def test_again_without_anything_to_release_just_runs(self):
+        code, _, _, _ = self.run_main('--again')
+        self.assertEqual(code, 0)
+        self.assertEqual(self.released('again'), [])
+
+    def test_again_is_not_combined_with_explicit_retry(self):
+        code, connect, _, _ = self.run_main('--again', '--retry-of', 'a' * 12, '--state-bridge',
+                                            '--continue-payment', '--inspect-failure')
+        self.assertEqual((code, connect.call_count), (2, 0))
+
+    def test_refusal_says_what_happened_and_how_to_go_on(self):
+        self.run_main()
+        self.run_main(tmp=self.tmp)
+        text = '\n'.join(self.logs)
+        self.assertIn('이미 좌석을 잡았다', text)
+        self.assertIn('--again', text)
+        self.assertNotIn('전송권이 이미 쓰였다', text)
+
+    def test_refusal_after_a_rejected_order_says_so(self):
+        tmp = self.tmp_dir()
+        (tmp / 'order-intent-2099-01-01.json').write_text(json.dumps(
+            {'state': 'unknown', 'why': 'business-error', 'at': '2099-01-01T07:59:00+09:00'}), encoding='utf-8')
+        code, _, _, _ = self.run_main(tmp=tmp)
+        self.assertEqual(code, 2)
+        self.assertTrue(any('주문이 거절됐다' in x and '07:59' in x for x in self.logs))
+
+    def test_explicit_retry_keeps_old_records_in_place(self):
+        # 명시 재시험은 이전 기록을 대조한다. 자동 보관이 그 기록을 먼저 치우면 안 된다.
+        self.run_main()
+        next_day = FakeClock(datetime(2099, 1, 2, 8, 20, 0, tzinfo=live_order.KST))
+        self.run_main('--day', '2099-01-02', '--retry-of', 'a' * 12, '--state-bridge',
+                      '--continue-payment', '--inspect-failure', tmp=self.tmp, clock=next_day)
+        self.assertEqual(self.released('auto'), [])
+        self.assertTrue((self.tmp / 'order-intent-2099-01-01.json').exists())
 
     def test_unresolved_intent_of_a_previous_day_blocks(self):
         (self.tmp_dir() / 'order-intent-2098-12-31.json').write_text(
@@ -519,14 +593,30 @@ class SendSafetyTests(FlowHarness):
         self.assertEqual(code, 2)
         self.assertEqual([c for c in calls if c.startswith('send:')], [])
 
+    def status(self, clock):
+        logs = []
+        with mock.patch.object(live_order, 'STATE', self.tmp), \
+                mock.patch.object(live_order, 'log', logs.append), \
+                mock.patch.object(live_order, 'datetime', clock), \
+                mock.patch.object(sys, 'argv', ['live_order.py', '--date', '2027-09-09',
+                                                '--day', '2099-01-01', '--status']):
+            return live_order.main(), '\n'.join(logs)
+
     def test_status_is_read_only(self):
         self.run_main()
         before = sorted(p.name for p in self.tmp.iterdir())
-        with mock.patch.object(live_order, 'STATE', self.tmp), \
-                mock.patch.object(live_order, 'log', lambda m: None), \
-                mock.patch.object(sys, 'argv', ['live_order.py', '--date', '2027-09-09',
-                                                '--day', '2099-01-01', '--status']):
-            self.assertEqual(live_order.main(), 2)
+        code, text = self.status(FakeClock(datetime(2099, 1, 1, 8, 30, 0, tzinfo=live_order.KST)))
+        self.assertEqual(code, 2)
+        self.assertIn('--again', text)
+        self.assertEqual(sorted(p.name for p in self.tmp.iterdir()), before)
+
+    def test_status_reports_old_records_without_moving_them(self):
+        self.run_main()
+        before = sorted(p.name for p in self.tmp.iterdir())
+        code, text = self.status(FakeClock(datetime(2099, 1, 2, 8, 20, 0, tzinfo=live_order.KST)))
+        self.assertEqual(code, 0)
+        self.assertIn('자동으로 보관된다', text)
+        self.assertIn('막는 기록 없음', text)
         self.assertEqual(sorted(p.name for p in self.tmp.iterdir()), before)
 
 
