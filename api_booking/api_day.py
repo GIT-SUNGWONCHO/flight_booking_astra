@@ -36,11 +36,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'dev'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from runtime import KST  # noqa: E402
+import astra_config  # noqa: E402
 
 PY = str(ROOT / ('.venv/Scripts/python.exe' if os.name == 'nt' else '.venv/bin/python'))
-# 예매 포트. 9232·9243 = 와이프 스카이패스, 9242 = 본인 네이버.
-# 9233 은 계측 전용이라 여기 쓰지 않는다.
-BOOKING_PORTS = (9232, 9242, 9243, 9244)
+# 예매 자리. 9232·9243 = 계정 1(1순위·대체), 9242·9244 = 계정 2. 어느 계정이 어떻게 로그인하는지는
+# config/run.json 이 정한다(dev/astra_config.py). 9233 은 계측 전용이라 여기 쓰지 않는다.
+BOOKING_PORTS = astra_config.BOOKING_PORTS
 PORT = 9232
 OUT = ROOT / 'dev-shots' / 'api-day'
 EXIT_REPREPARE = 3
@@ -192,10 +193,10 @@ def order_args(a, at, health_at, state_dir):
 
 
 def main():
-    ap = argparse.ArgumentParser(description='API 예매 무인 체인(9232·9243 와이프 · 9242 본인)')
+    ap = argparse.ArgumentParser(description='API 예매 무인 체인. 보통은 astra.py 가 설정을 읽어 대신 부른다')
     ap.add_argument('--mode', required=True, choices=['rehearsal', 'live'])
     ap.add_argument('--port', type=int, default=9232, choices=list(BOOKING_PORTS),
-                    help='예매 브라우저 포트. 9232·9243=와이프 스카이패스, 9242=본인 네이버')
+                    help='예매 브라우저 자리. 9232·9243=계정 1, 9242·9244=계정 2')
     ap.add_argument('--live-state-dir', default='',
                     help='live 에서 이 상태 폴더를 쓴다(동시 실행 시 9232 외 모두). 기본 폴더는 줄 수 없다')
     # 대체 예매 게이트(2026-09-24). 프레스티지가 좌석을 못 잡았을 때만 일반석을 주문한다.

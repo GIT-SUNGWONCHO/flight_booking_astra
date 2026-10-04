@@ -43,6 +43,7 @@ from evidence import order_amount_diagnostic  # noqa: E402
 from availability import Target  # noqa: E402
 from order_flow import Checks, Event, OrderFlow  # noqa: E402
 from runtime import KST, measure_clock  # noqa: E402
+import astra_config  # noqa: E402
 
 AVAIL = '/api/ap/booking/avail/awardAvailability'
 FARE = '/api/ap/booking/avail/fareInformation'
@@ -215,8 +216,8 @@ def record_intent(day, state, **extra):
 
 def main():
     ap = argparse.ArgumentParser(description='09시 API 예매 실행기')
-    ap.add_argument('--port', type=int, default=9232, choices=[9232, 9242, 9243, 9244],
-                    help='예매 브라우저. 9232·9243=와이프 스카이패스, 9242=본인 네이버')
+    ap.add_argument('--port', type=int, default=9232, choices=list(astra_config.BOOKING_PORTS),
+                    help='예매 브라우저 자리. 9232·9243=계정 1, 9242·9244=계정 2')
     ap.add_argument('--date', required=True, help='목표 출발일 YYYY-MM-DD')
     ap.add_argument('--flight', default='901')
     ap.add_argument('--origin', default='ICN')

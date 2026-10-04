@@ -1,7 +1,14 @@
 # 포트 소유권을 확인하고 이 worktree의 정확한 프로필 경로만 종료한다.
-param([switch]$Restart, [int]$Port = 0)
+param([switch]$Restart, [int]$Port = 0, [switch]$Show)
 $ErrorActionPreference = 'Stop'
-$chrome = 'C:\Program Files\Google\Chrome\Application\chrome.exe'
+# Chrome can live in three places depending on how it was installed.
+$chrome = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+            "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+            "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe") |
+  Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+if (-not $chrome) { throw 'Google Chrome not found. Install it from https://www.google.com/chrome first.' }
+# -Show opens a visible window (needed when a person has to log in). Default stays hidden.
+$style = if ($Show) { 'Normal' } else { 'Hidden' }
 $root = Split-Path -Parent $PSScriptRoot
 # 9242(.api-profile, 본인)·9243(.debug-profile3, 와이프)은 두 번째 예매용이다.
 # 인자 없이 부르면 운영 2개(9232·9233)만 다루고, 나머지는 -Port 로 지정해야 열린다
@@ -54,7 +61,7 @@ foreach ($t in $targets) {
     if ($profileRemaining.Count) { throw "Profile $profile still has live Chrome processes" }
   }
   if (-not $listeners.Count) {
-    Start-Process -FilePath $chrome -WindowStyle Hidden -ArgumentList @(
+    Start-Process -FilePath $chrome -WindowStyle $style -ArgumentList @(
       "--remote-debugging-port=$($t.Port)", "--user-data-dir=`"$profile`"",
       '--no-first-run', '--no-default-browser-check', '--window-size=1600,1000',
       '--disable-popup-blocking',

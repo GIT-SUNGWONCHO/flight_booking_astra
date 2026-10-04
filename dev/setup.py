@@ -23,21 +23,26 @@ ROOT = Path(__file__).resolve().parent.parent
 USER = ROOT / "userscript" / "ke-award-macro.user.js"
 CDP = "http://localhost:9232"
 
-# 로그인 방식(사용자 확정 2026-09-12). 기본은 본인 네이버 연동이다.
-# skypass(와이프 계정) 복귀는 SKYPASS_PORTS 에만 적용한다 - 9233 계측과 9242 본인 예매는
-# 언제나 본인 네이버다.
-# 9242 는 2026-09-22 사용자 요청으로 '본인 계정 두 번째 예매'에 쓴다(프로필 .api-profile).
-# 9243 은 2026-09-23 사용자 요청으로 '와이프 계정 두 번째 예매'에 쓴다(프로필 .debug-profile3).
-# 9244 는 2026-09-24 사용자 요청으로 '본인 계정 두 번째 예매'(일반석 대체)에 쓴다(.api-profile2).
-PROFILE_BY_PORT = {9232: ".debug-profile", 9233: ".debug-profile2",
-                   9242: ".api-profile", 9243: ".debug-profile3",
-                   9244: ".api-profile2"}
-SKYPASS_PORTS = frozenset({9232, 9243})
+# 어느 자리(포트)에 어느 계정이 어떤 방식으로 로그인하는지는 config/run.json 이 정한다(astra_config).
+# 설정 파일이 없으면 2026-09 구성 그대로다: .env 의 KE_LOGIN_MODE=skypass 일 때 9232·9243 만
+# 스카이패스 아이디·비밀번호, 나머지(9233 계측·9242·9244)는 네이버 연동.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import astra_config  # noqa: E402
+
+PROFILE_BY_PORT = {port: slot[0] for port, slot in astra_config.SLOTS.items()}
 
 
-def login_mode(env, port):
-    return "skypass" if ((env.get("KE_LOGIN_MODE") or "").strip().lower() == "skypass"
-                         and port in SKYPASS_PORTS) else "naver"
+def load_config():
+    """설정을 읽는다. 없으면 None(예전 구성). 고칠 곳이 있으면 그 내용을 알리고 멈춘다."""
+    try:
+        return astra_config.load()
+    except astra_config.ConfigError as exc:
+        print(json.dumps({"ok": False, "why": f"설정 오류: {exc}"}, ensure_ascii=False))
+        raise SystemExit(2)
+
+
+def login_mode(env, port, cfg=None):
+    return astra_config.login_for(port, env, cfg)
 
 
 def mode_marker(port):
@@ -341,11 +346,14 @@ def main() -> int:
             port = int(cdp.rsplit(":", 1)[1])
         except (IndexError, ValueError):
             pass
-        mode = login_mode(env, port)
+        cfg = load_config()
+        mode = login_mode(env, port, cfg)
+        marker_ports = astra_config.marker_ports(env, cfg)
+        key_id, key_pw, key_tab = astra_config.credential_keys(port, cfg)
         # 와이프 계정 포트(9232·9243)는 표시가 현재 정책과 같을 때만 아래 조기 반환을 허용한다.
         # 표시가 없거나 다르면 정상 흐름으로 내려가 로그인 상태를 실제로 확인한다.
         # (로그아웃 상태면 그대로 정책대로 재로그인하고 표시를 새로 쓴다.)
-        marker_ok = (port not in SKYPASS_PORTS) or (read_mode_marker(port) == mode)
+        marker_ok = (port not in marker_ports) or (read_mode_marker(port) == mode)
 
         # 이미 달력이면 끝 (도착지를 바꿔야 하면 그대로 진행한다)
         if goal_now(page.url, departure) and not want and marker_ok:
@@ -382,7 +390,7 @@ def main() -> int:
                 break
             page.wait_for_timeout(1000)
             inject()
-        if logged and port in SKYPASS_PORTS:
+        if logged and port in marker_ports:
             seen = read_mode_marker(port)
             if seen != mode:
                 # 살아 있는 세션이 어느 계정인지는 화면만 보고 알 수 없다.
@@ -404,15 +412,17 @@ def main() -> int:
             # 넘어가지 못하게 막아 두었다. 그 제한을 사용자 지시로 해제했다.
             # **결과: 9232 도 본인 계정으로 로그인된다. 와이프 마일리지로 예매하려면
             # KE_LOGIN_MODE=skypass 로 되돌리고 .env 자격정보가 있어야 한다.**
-            use_idpw = (mode == "skypass") and env.get("KE_SKYPASS_ID") and env.get("KE_SKYPASS_PW")
+            use_idpw = (mode == "skypass") and env.get(key_id) and env.get(key_pw)
             if mode == "skypass" and not use_idpw:
-                print(json.dumps({"ok": False, "why": "로그인 필요: KE_LOGIN_MODE=skypass 인데 자격정보 누락; 다른 로그인 방식으로 전환하지 않음"}, ensure_ascii=False))
+                print(json.dumps({"ok": False, "why": f"로그인 필요: 이 자리는 스카이패스 로그인인데 .env 의 "
+                                  f"{key_id}·{key_pw} 가 비어 있다. 다른 로그인 방식으로 넘어가지 않는다"},
+                                 ensure_ascii=False))
                 return 2
             if use_idpw:
                 log("로그아웃 상태 - 스카이패스 아이디/비밀번호로 로그인 시도 (.env)")
                 did_login = True
-                if login_idpw(page, inject, env["KE_SKYPASS_ID"], env["KE_SKYPASS_PW"],
-                              env.get("KE_LOGIN_TAB", "")):
+                if login_idpw(page, inject, env[key_id], env[key_pw],
+                              env.get(key_tab, "")):
                     logged = True
                     write_mode_marker(port, "skypass")
                     log("스카이패스 로그인 성공")
@@ -426,7 +436,7 @@ def main() -> int:
                     return 2
 
             if not logged:
-                log(f"로그아웃 상태 - 네이버 연동으로 로그인 시도 (포트 {9232 if '9232' in cdp else 9233}, 본인 계정)")
+                log(f"로그아웃 상태 - 네이버 연동으로 로그인 시도 (포트 {port})")
                 did_login = True
                 if login_naver(page, inject):
                     logged = True
