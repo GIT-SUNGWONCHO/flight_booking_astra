@@ -9,9 +9,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -31,16 +33,14 @@ def check(ok: bool, label: str, detail: str = "") -> None:
 
 
 def build_with(steps: list[dict]) -> str:
-    """steps.json 을 일시적으로 바꿔 빌드하고 결과 스크립트를 돌려준다."""
-    sj = ROOT / "ke_award" / "steps.json"
-    backup = sj.read_text(encoding="utf-8")
-    sj.write_text(json.dumps({"note": "test", "steps": steps}, ensure_ascii=False), encoding="utf-8")
-    try:
-        subprocess.run(["node", "build.mjs"], cwd=ROOT, capture_output=True, check=True)
-        return (ROOT / "userscript" / "ke-award-macro.user.js").read_text(encoding="utf-8")
-    finally:
-        sj.write_text(backup, encoding="utf-8")
-        subprocess.run(["node", "build.mjs"], cwd=ROOT, capture_output=True)
+    """단계를 바꿔 빌드한 스크립트를 돌려준다. 추적 파일(steps.json·빌드 결과)은 건드리지 않는다."""
+    with tempfile.TemporaryDirectory() as tmp:
+        sj = Path(tmp) / "steps.json"
+        out = Path(tmp) / "ke-award-macro.user.js"
+        sj.write_text(json.dumps({"note": "test", "steps": steps}, ensure_ascii=False), encoding="utf-8")
+        env = {**os.environ, "KE_BUILD_STEPS": str(sj), "KE_BUILD_OUT": str(out)}
+        subprocess.run(["node", "build.mjs"], cwd=ROOT, env=env, capture_output=True, check=True)
+        return out.read_text(encoding="utf-8")
 
 
 def step(sel: str, text: str) -> dict:

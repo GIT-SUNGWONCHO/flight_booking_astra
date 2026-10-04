@@ -7,6 +7,7 @@
  * 엔진을 한 곳에서만 관리하기 위한 스티처.  실행:  node build.mjs
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { execSync } from 'node:child_process';
 
 /* 버전은 손으로 올리면 반드시 까먹는다. 그러면 붙여넣은 스크립트가 최신인지
@@ -24,6 +25,12 @@ function gitInfo() {
   }
 }
 const GIT = gitInfo();
+
+/* 시험이 단계를 바꿔 빌드해 볼 때 쓴다(test_precedence). 주지 않으면 평소 경로다.
+ * 예전에는 시험이 steps.json 과 빌드 결과를 잠깐 덮어썼다가 되돌렸는데, 그러면 시험을 돌릴
+ * 때마다 Git 이 추적하는 파일이 바뀌고, 그 사이에 로그인 준비가 시험용 스크립트를 주입할 수 있었다. */
+const STEPS_PATH = process.env.KE_BUILD_STEPS || 'ke_award/steps.json';
+const OUT_PATH = process.env.KE_BUILD_OUT || 'userscript/ke-award-macro.user.js';
 
 /* @grant 를 none 으로 두면 Tampermonkey 가 페이지 컨텍스트에 <script> 로 밀어넣는데,
  * CSP 가 강한 사이트(항공사 등)에서는 그게 차단되어 스크립트가 조용히 죽는다.
@@ -62,7 +69,7 @@ ${src}
  * localStorage 에만 두면 PC 를 옮길 때 사라지고 git 으로 관리도 안 된다.
  * steps.json 을 커밋해두면 어느 PC 에서 빌드해도 같은 단계를 들고 간다. */
 function bakedSteps() {
-  const path = 'ke_award/steps.json';
+  const path = STEPS_PATH;
   let steps = [];
   let at = '';
   if (existsSync(path)) {
@@ -100,6 +107,6 @@ const out = [
   isolate('hud', readFileSync('ke_award/hud.js', 'utf8')),
 ].join('\n');
 
-mkdirSync('userscript', { recursive: true });
-writeFileSync('userscript/ke-award-macro.user.js', out, 'utf8');
-console.log(`built userscript/ke-award-macro.user.js  (${out.split('\n').length} lines, ${out.length} bytes)`);
+mkdirSync(dirname(OUT_PATH), { recursive: true });
+writeFileSync(OUT_PATH, out, 'utf8');
+console.log(`built ${OUT_PATH}  (${out.split('\n').length} lines, ${out.length} bytes)`);
