@@ -237,16 +237,29 @@ class PrepAndFireFlowTests(FlowHarness):
         self.assertEqual((code, connect.call_count), (0, 1))
 
     def test_incomplete_prep_is_not_used(self):
+        # 2026-10-04: 종료 코드가 2 → 4. 주문 요청이 나가지 않았으므로 체인이 Chrome 을 다시 띄워 재준비한다.
         steps = dict(FULL_STEPS, contact=False)
-        code, _, calls, _ = self.run_main('--dry', steps=steps)
-        self.assertEqual(code, 2)
+        code, _, calls, intent = self.run_main('--dry', steps=steps)
+        self.assertEqual((code, intent), (live_order.EXIT_RECAPTURE, live_order.PREP_CLEAN))
         self.assertNotIn('snapshot', calls)
         self.assertEqual(self.sends(calls), [])
+
+    def test_incomplete_prep_with_an_unblocked_order_is_not_retryable(self):
+        # 같은 미완료라도 막지 못한 주문 요청을 봤으면 재준비 대상이 아니다(주문이 생겼을 수 있다).
+        steps = dict(FULL_STEPS, contact=False, orderRequests={'seen': 1, 'blocked': 0, 'unblocked': 1})
+        code, _, _, intent = self.run_main('--dry', steps=steps)
+        self.assertEqual((code, intent), (2, 'prep-order-possible'))
+
+    def test_incomplete_prep_says_when_the_capture_date_is_the_problem(self):
+        for key, phrase in (('date', '고르지 못했다'), ('fare', '운임 칸이 없다')):
+            with self.subTest(key):
+                self.run_main('--dry', steps=dict(FULL_STEPS, **{key: False}))
+                self.assertTrue(any(phrase in x and '캡처 날짜를 바꿔야' in x for x in self.logs))
 
     def test_missing_path_in_this_generation_is_refused(self):
         partial = {live_order.AVAIL: _caps()[live_order.AVAIL]}
         code, _, calls, _ = self.run_main('--dry', snap=partial)
-        self.assertEqual(code, 2)
+        self.assertEqual(code, live_order.EXIT_RECAPTURE)
         self.assertEqual(self.sends(calls), [])
 
     def test_unblocked_order_while_returning_to_calendar_stops(self):

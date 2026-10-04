@@ -129,9 +129,6 @@ class HandoffWatchBrowserTest(unittest.TestCase):
         self.assertIn(ORDER_PATH, reached)
 
 
-if __name__ == '__main__':
-    unittest.main()
-
 
 CARD_HTML = """<title>card fixture</title>
 <label><input type=radio name=pm id=rad-kor {kor}> 한국발행 신용/체크카드</label>
@@ -182,3 +179,70 @@ class HyundaiCardSelectTests(unittest.TestCase):
         out, _ = self.run_select(hd='')
         self.assertFalse(out['verified'])
         self.assertEqual(out['result'], 'option-missing')
+
+
+SEARCH_HTML = """<title>calendar fixture</title><meta charset="utf-8">
+<style>body{margin:0} #spacer{height:%(spacer)dpx}</style>
+<kc-global-header id="floating_top"></kc-global-header>
+<div id="cal">달력</div><div id="spacer"></div>
+%(calendar)s
+<script>
+  window.hits = {header: 0, calendar: 0};
+  const head = document.querySelector('kc-global-header').attachShadow({mode: 'open'});
+  head.innerHTML = '<button id="totalSearchBtn" style="width:36px;height:36px">검색</button>';
+  head.getElementById('totalSearchBtn').addEventListener('click', () => window.hits.header++);
+  const go = document.getElementById('go');
+  if (go) go.addEventListener('click', () => window.hits.calendar++);
+</script>"""
+CALENDAR_BUTTON = '<kds-button id="go" style="display:inline-block;width:160px;height:51px">검색</kds-button>'
+
+
+class SearchButtonTests(unittest.TestCase):
+    """달력 [검색] 고르기(_search_box)를 로컬 HTML 로 시험한다. 2026-10-04 실사이트에서 본 두 경우를 옮겼다:
+    머리말에도 글자가 '검색'인 버튼이 있고, 좁은 창에서는 달력의 [검색]이 창 밖에 놓인다.
+    실사이트 DOM 과 같다고 보장하지 않는다."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.pw = sync_playwright().start()
+        cls.browser = cls.pw.chromium.launch()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.browser.close()
+        cls.pw.stop()
+
+    def page(self, spacer=100, calendar=CALENDAR_BUTTON):
+        page = self.browser.new_page(viewport={'width': 1100, 'height': 620})
+        self.addCleanup(page.close)
+        page.set_content(SEARCH_HTML % {'spacer': spacer, 'calendar': calendar})
+        return page
+
+    def test_picks_the_calendar_button_not_the_header_icon(self):
+        page = self.page()
+        box = site_drive._search_box(page)
+        self.assertEqual((box['others'], box['scrolled'], box['inView']), (1, False, True))
+        page.mouse.click(box['x'], box['y'])
+        self.assertEqual(page.evaluate('window.hits'), {'header': 0, 'calendar': 1})
+
+    def test_button_below_the_window_is_brought_into_view_first(self):
+        page = self.page(spacer=2000)
+        # 예전 방식: 창 밖 좌표를 그대로 누른다 - 아무 일도 일어나지 않는다.
+        old = site_drive._box_by_text(page, '^검색$')
+        self.assertGreater(old['y'], 620)
+        page.mouse.click(old['x'], old['y'])
+        self.assertEqual(page.evaluate('window.hits.calendar'), 0)
+        box = site_drive._search_box(page)
+        self.assertEqual((box['scrolled'], box['inView']), (True, True))
+        page.mouse.click(box['x'], box['y'])
+        self.assertEqual(page.evaluate('window.hits'), {'header': 0, 'calendar': 1})
+
+    def test_header_icon_alone_is_never_clicked(self):
+        page = self.page(calendar='')
+        self.assertIsNotNone(site_drive._box_by_text(page, '^검색$'))   # 예전 방식은 머리말 아이콘을 골랐다
+        self.assertIsNone(site_drive._search_box(page))
+        self.assertEqual(site_drive._search_diag(page)['buttons'][0][0], 'button#totalSearchBtn')
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -705,6 +705,50 @@ class CapturePassGuardTests(unittest.TestCase):
         self.assertEqual((page.clicked, steps['orderRequests']['seen']), ([], 0))
 
 
+class SearchRetryTests(unittest.TestCase):
+    """[검색]이 먹지 않을 때: 주소가 안 바뀌면 곧 알아채고, 화면 상태를 남기고, 세 번에서 멈춘다."""
+
+    def run_pass(self, page):
+        self.logs, self.waits = [], []
+        page.wait_for_timeout = self.waits.append
+        return site_drive.capture_pass(page, '09월 07일', log=self.logs.append, clock=_clock(), settle_ms=0)
+
+    def test_three_tries_then_stop_with_a_diagnosis_each_time(self):
+        class Stuck(CaptureFakePage):
+            def _click(self, x, y):
+                if self._last_text == '^검색$':
+                    self._last_text = None      # 눌렀지만 이동하지 않는다
+                    return
+                super()._click(x, y)
+        page = Stuck(FakeContext())
+        steps = self.run_pass(page)
+        self.assertIs(steps['search'], False)
+        self.assertNotIn('fare', steps)
+        stuck = [x for x in self.logs if '이동 없음' in x]
+        self.assertEqual(len(stuck), 3)
+        self.assertTrue(all('누른 곳' in x for x in stuck))
+        # 한 번에 기다리는 시간은 SEARCH_MOVE_MS 를 넘지 않는다(예전에는 매번 11초를 통째로 기다렸다).
+        self.assertLessEqual(sum(w for w in self.waits if w == 250), 3 * site_drive.SEARCH_MOVE_MS)
+        self.assertNotIn(site_drive.SEARCH_SETTLE_MS, self.waits)
+
+    def test_success_still_waits_for_the_list_to_draw(self):
+        page = CaptureFakePage(FakeContext())
+        steps = self.run_pass(page)
+        self.assertIs(steps['search'], True)
+        self.assertIn(site_drive.SEARCH_SETTLE_MS, self.waits)
+
+    def test_missing_button_is_reported_and_not_clicked(self):
+        class NoButton(CaptureFakePage):
+            def evaluate(self, js, arg=None):
+                if js is site_drive._SEARCH_JS:
+                    return None
+                return super().evaluate(js, arg)
+        page = NoButton(FakeContext())
+        steps = self.run_pass(page)
+        self.assertIs(steps['search'], False)
+        self.assertEqual(len([x for x in self.logs if '버튼을 찾지 못했다' in x]), 3)
+
+
 class ReturnToCalendarTests(unittest.TestCase):
     def back(self, page):
         return site_drive.return_to_calendar(page, log=lambda m: None, settle_ms=0, clock=_clock())

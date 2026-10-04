@@ -11,8 +11,11 @@
               --capture-iso 2027-09-13 --at 09:00:00 --health-at 08:50:00 \\
               --capture-not-before 08:38:00 --reprep-cutoff 08:52:00 --own-mileage 100000
 
-재준비: live_order 가 주문 전에 준비 무효(종료 코드 3)로 끝나면 마감 전까지 로그인부터 다시
-준비한다. 그 밖의 종료 코드는 주문이 나갔을 수 있으므로 다시 실행하지 않는다.
+재준비: live_order 가 주문을 보내기 전에 끝난 것이 확인되면 마감 전까지 다시 준비한다.
+  3  준비 무효(세션·통화·저장 상태). 로그인부터 다시 준비한다.
+  4  준비 통과(캡처) 실패. Chrome 을 다시 띄우고 처음부터 준비한다(2026-10-04).
+  1  실행 중 예외로 죽었다. 상태 폴더에 전송권이 없고 주문 의도가 준비 단계면 4 와 같이 한다.
+그 밖의 종료 코드는 주문이 나갔을 수 있으므로 다시 실행하지 않는다.
 리허설은 dev-shots/state-rehearsal/<id>/ 상태 폴더를 써서 실전 전송권과 섞지 않는다.
 비밀번호·토큰은 다루지 않는다(로그인은 dev/setup.py 가 .env 로 한다).
 """
@@ -41,6 +44,9 @@ BOOKING_PORTS = (9232, 9242, 9243, 9244)
 PORT = 9232
 OUT = ROOT / 'dev-shots' / 'api-day'
 EXIT_REPREPARE = 3
+EXIT_RECAPTURE = 4
+STATE_DEFAULT = ROOT / 'dev-shots' / 'state'
+PRE_ORDER_STATES = ('preparing', 'prep-no-unblocked-order', 'resolved')   # live_order.NON_BLOCKING 과 같다
 ENV = {**os.environ, 'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8', 'PYTHONUNBUFFERED': '1'}
 
 
@@ -91,6 +97,25 @@ def lingering_orders(port=None):
             continue
         out.append(r['ProcessId'])
     return out
+
+
+def order_not_sent(state_dir):
+    """방금 끝난 live_order 가 주문 요청을 보내지 않았다는 것이 기록으로 확인되는가.
+
+    전송권은 주문 요청 직전에 만든다 - 전송권이 없으면 보내지 않은 것이다. 주문 의도도 준비 단계여야 한다.
+    읽을 수 없는 기록이 하나라도 있으면 False(다시 실행하지 않는 쪽).
+    """
+    root = Path(state_dir) if state_dir else STATE_DEFAULT
+    if (root / 'order-permit.json').exists():
+        return False
+    for path in root.glob('order-intent-*.json'):
+        try:
+            state = json.loads(path.read_text(encoding='utf-8')).get('state')
+        except (OSError, ValueError, AttributeError):
+            return False
+        if state not in PRE_ORDER_STATES:
+            return False
+    return True
 
 
 def run_step(report, name, args, timeout=300):
@@ -314,6 +339,17 @@ def main():
         if code == EXIT_REPREPARE:
             log('주문 전 준비 무효(3) - 다시 준비한다')
             save()
+            continue
+        if code == EXIT_RECAPTURE or (code == 1 and order_not_sent(state_dir)):
+            why = '준비 통과 실패(4)' if code == EXIT_RECAPTURE else '실행 중 예외(1), 주문 기록 없음'
+            if attempt >= a.max_attempts:
+                log(f'{why} - 준비 시도 {a.max_attempts}번을 다 썼다')
+                break
+            log(f'{why} - 주문은 나가지 않았다. Chrome 을 다시 띄우고 처음부터 준비한다')
+            save()
+            if not a.no_restart and not browser(report, restart=True, port=a.port):
+                save(result='chrome-failed')
+                return 2
             continue
         save(result='done' if code == 0 else f'live_order-exit-{code}', finishedAt=datetime.now(KST).isoformat())
         log(f'끝: live_order 종료 코드 {code}. 보고서 {path}')

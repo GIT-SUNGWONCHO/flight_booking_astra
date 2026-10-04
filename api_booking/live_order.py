@@ -56,6 +56,10 @@ PRE_FIRE_MAX_MS = 3000
 OBSERVE_MAX = 3
 # 주문 전송 전에 준비가 무효가 된 경우의 종료 코드. 체인(api_day)은 이 코드에서만 재준비한다.
 EXIT_REPREPARE = 3
+# 준비 통과(캡처)가 끝까지 가지 못했다. 사이트의 주문 요청은 막힌 채였고 새어 나간 것도 없다
+# (prep_counts_clean 통과 뒤에만 쓴다). 체인이 Chrome 을 다시 띄워 처음부터 준비할 수 있다.
+# 2026-10-04 까지는 2 였고, 9/25 에 4개 중 2개가 여기서 끝나 사람이 다시 띄워야 했다.
+EXIT_RECAPTURE = 4
 # 무장 점검: 토큰이 발사 시각 + 이 초 이후까지 유효해야 한다.
 TOKEN_MARGIN = 300
 # 미개방 형태 대조에 쓰는 필드. 식별자는 없다.
@@ -809,15 +813,23 @@ def run(a, ledger, target, balance, fire_at, clock):
         if not prep_counts_clean(a, ledger, steps):
             return 2
         if not site_drive.capture_complete(steps):
-            log('준비 통과가 승객·연락처 확인까지 끝나지 않았다 - 중단. 화면을 확인하고 다시 준비한다')
-            return 2
+            log('준비 통과가 승객·연락처 확인까지 끝나지 않았다 - 중단. 주문 요청은 나가지 않았다')
+            if steps.get('date') is False:
+                log(f'  캡처 날짜 {a.capture_date} 를 달력에서 고르지 못했다(매진이거나 없는 날짜). '
+                    '다시 해도 같으면 캡처 날짜를 바꿔야 한다')
+            elif steps.get('fare') is False:
+                log(f'  캡처 날짜 {a.capture_date} 에 KE{a.flight} {a.capture_cabin} 운임 칸이 없다. '
+                    '다시 해도 같으면 캡처 날짜를 바꿔야 한다')
+            return EXIT_RECAPTURE
         prepared = time.monotonic()
         reached_order = (steps.get('orderRequests') or {}).get('seen', 0) >= 1
         snap = transport.snapshot(page, since=since)
         missing = missing_captures(snap, a.capture_max_age, time.time())
         if missing:
+            # 같은 Chrome 세션에서 두 번째 통과면 사이트가 주문 요청을 다시 보내지 않는다(9/20).
+            # Chrome 을 다시 띄운 첫 통과에서만 잡힌다.
             log(f'이번 준비에서 캡처하지 못한 경로: {[m.split("/")[-1] for m in missing]} - 중단')
-            return 2
+            return EXIT_RECAPTURE
         log('3구간 캡처를 메모리에 확보(이번 준비 세대)')
         # 사이트가 승객·연락처 확인을 지나 주문 요청을 보냈다 = 준비 시점 회원·승객 검증 통과 관측.
         # 그 확인이 어느 승객·여정에서 났는지 함께 묶는다(검토 2331c183 P1).

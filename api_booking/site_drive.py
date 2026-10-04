@@ -228,6 +228,7 @@ def capture_pass(page, date_label, *, cabin='일반석', log=print, clock=time.m
 
 def _capture_steps(page, date_label, cabin, log, steps, settle_ms, flight=None,
                    ensure_currency=None):
+    ensure_window(page, log)
     if 'calendar-fare-bonus' not in page.url:
         page.goto(CALENDAR, wait_until='load', timeout=60000)
         page.wait_for_timeout(settle_ms)
@@ -265,6 +266,89 @@ def _capture_steps(page, date_label, cabin, log, steps, settle_ms, flight=None,
     log(f'  승객={steps["passenger"]} 연락처={steps["contact"]}')
 
 
+SEARCH_SETTLE_MS = 11000   # [검색] 뒤 다음 단계까지 기다리는 시간. 고정 대기이던 때와 같게 둔다
+SEARCH_MOVE_MS = 4000      # 이 안에 주소가 안 바뀌면 클릭이 먹지 않은 것이다(실측 0.5~0.6초, 2026-10-04)
+WINDOW = (1600, 1000)      # dev/astra_browsers.ps1 이 띄우는 크기
+
+_SEARCH_JS = """(pat) => { const re=new RegExp(pat); const found=[];
+  const inHeader=(x)=>{ let p=x; for(let i=0;p&&i<40;i++){ const t=(p.tagName||'').toLowerCase();
+      if(t==='kc-global-header'||t==='header') return true;
+      p=p.parentNode||(p.getRootNode&&p.getRootNode().host)||null;
+      if(p&&p.nodeType===11) p=p.host||null; } return false; };
+  const deep=(root,d)=>{ if(!root||d>10) return;
+    for(const x of root.querySelectorAll('button,[role=button],kds-button')){
+      const s=(x.textContent||'').trim(); const r=x.getBoundingClientRect();
+      if(re.test(s)&&r.width>1&&r.height>1) found.push({el:x, area:r.width*r.height, header:inHeader(x)}); }
+    for(const x of root.querySelectorAll('*')) if(x.shadowRoot) deep(x.shadowRoot,d+1); };
+  deep(document,0);
+  const mine=found.filter(f=>!f.header).sort((a,b)=>b.area-a.area)[0];
+  if(!mine) return null;
+  const inside=(r)=>{ const cx=r.left+r.width/2, cy=r.top+r.height/2;
+      return cx>0&&cy>0&&cx<window.innerWidth&&cy<window.innerHeight; };
+  let r=mine.el.getBoundingClientRect(), scrolled=false;
+  if(!inside(r)){ mine.el.scrollIntoView({block:'center'}); scrolled=true; r=mine.el.getBoundingClientRect(); }
+  return {x:r.left+r.width/2, y:r.top+r.height/2, scrolled:scrolled, inView:inside(r),
+          others:found.length-1}; }"""
+
+_SEARCH_DIAG_JS = """() => { const out=[];
+  const deep=(root,d)=>{ if(!root||d>10) return;
+    for(const x of root.querySelectorAll('button,[role=button],kds-button')){
+      const s=(x.textContent||'').trim(); const r=x.getBoundingClientRect();
+      if(/^검색$/.test(s)) out.push([(x.tagName||'').toLowerCase()+(x.id?'#'+x.id:''),
+        Math.round(r.width), Math.round(r.height), Math.round(r.left+r.width/2), Math.round(r.top+r.height/2)]); }
+    for(const x of root.querySelectorAll('*')) if(x.shadowRoot) deep(x.shadowRoot,d+1); };
+  deep(document,0);
+  return {inner:[window.innerWidth, window.innerHeight], scrollY:Math.round(window.scrollY), buttons:out}; }"""
+
+
+def _search_box(page):
+    """달력의 [검색] 버튼 좌표. 못 찾으면 None.
+
+    2026-10-04 실사이트 조사로 좌표 클릭이 조용히 헛도는 경우 둘을 재현했다.
+    - 글자가 '검색'인 버튼이 둘이다. 창이 좁으면(안쪽 1,100px 근처) 머리말의 사이트 검색 아이콘도
+      보이는 버튼이 되어 후보에 든다. 머리말 안의 것은 고르지 않는다.
+    - 안쪽 너비 약 1,050px 이하에서는 [검색]이 달력 아래 본문에 놓여 창 밖(y=912 > 905)에 있다.
+      창 밖 좌표를 누르면 아무 일도 일어나지 않는다. 먼저 창 안으로 끌어온다.
+    """
+    box = page.evaluate(_SEARCH_JS, '^검색$')
+    return box if isinstance(box, dict) and 'x' in box and 'y' in box else None
+
+
+def _search_diag(page):
+    """[검색]이 안 먹었을 때 남기는 화면 상태. 다음에 같은 일이 나면 이 한 줄로 원인을 가른다."""
+    try:
+        return page.evaluate(_SEARCH_DIAG_JS)
+    except Exception as exc:  # noqa: BLE001
+        return f'진단 실패({type(exc).__name__})'
+
+
+def ensure_window(page, log=print):
+    """예매 창을 정해진 크기로 맞춘다. 실패해도 진행한다.
+
+    사람이 창을 줄이거나 나란히 놓으면 사이트가 다른 배치로 바뀐다. 9/25 에 네 창이 약 1,110px 로
+    놓여 있었고(로그의 날짜 셀 x=539 ↔ 안쪽 1,094px) 그날 4개 중 2개가 [검색]에서 걸렸다.
+    모든 통과 실적은 1600x1000 에서 나왔다.
+    """
+    try:
+        cdp = page.context.new_cdp_session(page)
+        win = cdp.send('Browser.getWindowForTarget')
+        b = win.get('bounds') or {}
+        if b.get('windowState') != 'normal' or (b.get('width'), b.get('height')) != WINDOW:
+            if b.get('windowState') != 'normal':
+                cdp.send('Browser.setWindowBounds', {'windowId': win['windowId'],
+                                                     'bounds': {'windowState': 'normal'}})
+            cdp.send('Browser.setWindowBounds', {'windowId': win['windowId'],
+                                                 'bounds': {'width': WINDOW[0], 'height': WINDOW[1]}})
+            page.wait_for_timeout(1500)
+            log(f'  창 크기를 {b.get("width")}x{b.get("height")}({b.get("windowState")}) → '
+                f'{WINDOW[0]}x{WINDOW[1]} 로 맞췄다')
+        cdp.detach()
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log(f'  창 크기를 확인하지 못했다({type(exc).__name__}) - 그대로 진행한다')
+        return False
+
+
 def _date_and_search(page, date_label, log, steps, drawn):
     """달력에서 날짜를 고르고 [검색]으로 항공편 화면까지 간다. 성공하면 True."""
     cell = select_date(page, date_label)
@@ -274,11 +358,28 @@ def _date_and_search(page, date_label, log, steps, drawn):
         return False
     steps['search'] = False
     for attempt in range(3):
-        click_text(page, '^검색$', 11000)
+        if attempt:
+            # 앞선 클릭이 다른 것을 열었을 수 있다(머리말의 사이트 검색 등). 닫고, 날짜 선택도 다시 본다.
+            try:
+                page.keyboard.press('Escape')
+            except Exception:  # noqa: BLE001
+                pass
+            select_date(page, date_label)
+        box = _search_box(page)
+        if not box:
+            log(f'  검색 {attempt+1}회차: 달력의 [검색] 버튼을 찾지 못했다, 재시도 · {_search_diag(page)}')
+            page.wait_for_timeout(2000)
+            continue
+        page.mouse.click(box['x'], box['y'])
+        waited = 0
+        while 'select-award-flight' not in page.url and waited < SEARCH_MOVE_MS:
+            page.wait_for_timeout(250)
+            waited += 250
         if 'select-award-flight' in page.url:
+            page.wait_for_timeout(max(0, SEARCH_SETTLE_MS - waited))   # 목록이 그려질 시간(전과 같게)
             steps['search'] = True
             break
-        log(f'  검색 {attempt+1}회차 이동 없음, 재시도')
+        log(f'  검색 {attempt+1}회차 이동 없음, 재시도 · 누른 곳 {box} · {_search_diag(page)}')
         page.wait_for_timeout(3000)
     log(f'  검색 → {page.url[-40:]}')
     return 'select-award-flight' in page.url
