@@ -1,0 +1,20 @@
+[08:59:35.691] 시계 보정(최종): 오프셋 -110.3ms · 불확실성 ±30.4ms · 기준 time.google.com · 선발사 허용 · 선발사 500ms
+[09:00:03.610] T0 발사: 2027-09-20 KE932 FCO-ICN KEBONUSEY · 문서 oreanair.com/booking/calendar-fare-bonus
+[09:00:05.417] 조회#1 status=200 1803ms 판정=selected → selected(selected) (+1.807s)
+[09:00:06.807] 운임 status=200 1387ms 판정=validated (+3.198s)
+[09:00:06.808] 필수 검증·주문 준비 판정=ready (+3.198s)
+[09:00:06.808] 대체 게이트: 앞선 주문 판정을 기다린다(최대 5.0초) · 0925-self.json
+[09:00:06.808] 대체 게이트: 신호=proceed (+3.199s)
+[09:00:06.816] 주문 전 인계 점검 통과 (8ms)
+[09:00:12.863] 허용 항목 주문 증거 저장 완료 (식별자 원문은 터미널에 출력하지 않음)
+[09:00:12.869] 주문 status=200 6032ms 판정=order-recorded (+9.251s)
+[09:00:12.873] 주문 응답 확인  **T0 → 주문 응답 9.251초** (보유 시작 시각은 미확인)
+[09:00:19.182] 인계 확인: {"matched": true, "sessionUnchanged": true, "cookieStampUnchanged": false, "displayHints": {"date": true, "mileage": true, "krw": true}}
+[09:00:23.726]   동의 btn-resv-agree-1: agreed (전 off, 클릭 True, 확인 True)
+[09:00:27.889]   동의 btn-resv-agree-3: agreed (전 off, 클릭 True, 확인 True)
+[09:00:29.523]   현대카드 선택: {'verified': True, 'select': 'set', 'result': 'hyundai-selected'}
+[09:00:30.191]   결제하기 클릭: True
+[09:00:31.289]   **이번 주문의 현대카드 인증수단 선택 창에 도착했다. 창 안에서는 누르지 않는다. 결제는 사용자.**
+[09:00:31.293] 상태 인계 결과: hyundai-card-window, 실제 결제창 완료=True
+[09:00:32.219] **[사용자 차례] 현대카드 창이 열렸다. 앱카드/PIN 인증과 최종 결제는 사용자가 한다.**
+[09:00:32.250] 구간별 호출 수: {'prep': {'awardAvailability': 2, 'fareInformation': 1, 'inputTravellers': 1, 'inputTravellers-blocked': 1, 'inputTravellers-unblocked': 0}, 'fire': {'awardAvailability-attempt': 1, 'awardAvailability-fetched': 1, 'fareInformation-attempt': 1, 'fareInformation-fetched': 1, 'inputTravellers-attempt': 1, 'inputTravellers-fetched': 1}, 'handoff': {'bridge:hyundai-card-window': 1}, 'observe': {}, 'health': {'arm-awardAvailability': 1, 'health-awardAvailability': 1}}

@@ -1,0 +1,44 @@
+{
+  "runId": "20260925-082001-689d26",
+  "mode": "live",
+  "port": 9232,
+  "target": {
+    "date": "2027-09-20",
+    "origin": "FCO",
+    "destination": "ICN",
+    "flight": "932",
+    "family": "KEBONUSPR"
+  },
+  "captureIso": "2027-09-15",
+  "startedAt": "2026-09-25T08:20:01.203598+09:00",
+  "steps": [
+    {
+      "name": "chrome-9232-restart",
+      "code": 0,
+      "seconds": 12.3,
+      "result": null
+    },
+    {
+      "name": "setup-calendar",
+      "code": 0,
+      "seconds": 128.8,
+      "result": {
+        "ok": true,
+        "url": "https://www.koreanair.com/booking/calendar-fare-bonus",
+        "why": ""
+      }
+    },
+    {
+      "name": "live_order#1",
+      "code": 0
+    }
+  ],
+  "observer": {
+    "pid": 30084,
+    "log": "<저장소>/dev-shots/api-day/observer-<실행ID>.log"
+  },
+  "fireAt": "2026-09-25T09:00:00+09:00",
+  "healthAt": "2026-09-25T08:50:00+09:00",
+  "result": "done",
+  "finishedAt": "2026-09-25T09:00:31.146017+09:00"
+}

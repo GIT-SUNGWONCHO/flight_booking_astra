@@ -1,0 +1,54 @@
+{
+  "runId": "a318048e34b4",
+  "pnr": null,
+  "orderId": null,
+  "target": {
+    "date": "2027-09-20",
+    "origin": "FCO",
+    "destination": "ICN",
+    "carrier": "KE",
+    "flight": "932",
+    "family": "KEBONUSPR"
+  },
+  "segmentStatus": null,
+  "currency": null,
+  "totalAmount": null,
+  "mileage": null,
+  "serverOrderCreatedAt": null,
+  "serverCreated": null,
+  "orderRequestStartedAt": "2026-09-25T00:00:02.866000+00:00",
+  "orderResponseReceivedAt": "2026-09-25T00:00:06.017166+00:00",
+  "passengerFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+  "diagnostic": {
+    "state": "received",
+    "responseObject": true,
+    "httpStatus": 200,
+    "currencyMatches": false,
+    "values": {
+      "amount": {
+        "fare": "0",
+        "order": null,
+        "matches": null
+      },
+      "totalAmount": {
+        "fare": "685700",
+        "order": null,
+        "matches": null
+      },
+      "mileage": {
+        "fare": "62500",
+        "order": null,
+        "matches": null
+      }
+    },
+    "error": {
+      "code": "ERT.15012",
+      "message": "운임 및 좌석 상황이 변하여 예약을 완료할 수 없습니다. 조건을 바꿔서 다시 검색해 주세요.",
+      "subMessages": [
+        {
+          "message": "We are unable to confirm the fare for the flights you have selected. Please choose a different fare or flights and resubmit your request. (<n> - 1009)"
+        }
+      ]
+    }
+  }
+}

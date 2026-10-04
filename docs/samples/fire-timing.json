@@ -1,0 +1,58 @@
+{
+  "timingId": "c5efc841dadf",
+  "day": "2026-09-25",
+  "at": "2026-09-25T09:00:30.934+09:00",
+  "target": {
+    "date": "2027-09-20",
+    "origin": "FCO",
+    "destination": "ICN",
+    "flight": "932",
+    "family": "KEBONUSPR"
+  },
+  "clock": {
+    "offsetMs": -112.3,
+    "uncertaintyMs": 2.8,
+    "source": "time.windows.com",
+    "measurements": [
+      {
+        "label": "start",
+        "ok": true,
+        "at": "2026-09-25T08:38:02.178+09:00",
+        "offsetMs": -130.3,
+        "uncertaintyMs": 30.2,
+        "source": "time.google.com"
+      },
+      {
+        "label": "final",
+        "ok": true,
+        "at": "2026-09-25T08:59:01.628+09:00",
+        "offsetMs": -112.3,
+        "uncertaintyMs": 2.8,
+        "source": "time.windows.com"
+      }
+    ]
+  },
+  "preFireMs": 800,
+  "openAt": "2026-09-25T09:00:00.000+09:00",
+  "trustBoundary": "2026-09-25T09:00:00.002+09:00",
+  "retryDeadline": "2026-09-25T09:00:08.000+09:00",
+  "retryLimits": {
+    "maxRetries": 25,
+    "gapMs": 150,
+    "untilMs": 8000
+  },
+  "attempts": [
+    {
+      "n": 1,
+      "sentAt": "2026-09-25T08:59:59.209+09:00",
+      "receivedAt": "2026-09-25T09:00:00.684+09:00",
+      "elapsedMs": 1456.5999999940395,
+      "status": 200,
+      "verdict": "selected",
+      "decision": "selected",
+      "reason": "selected",
+      "sentVsOpenMs": -790.2
+    }
+  ],
+  "observe": []
+}

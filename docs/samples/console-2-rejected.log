@@ -1,0 +1,13 @@
+[08:59:01.841] 시계 보정(최종): 오프셋 -112.4ms · 불확실성 ±2.5ms · 기준 time.windows.com · 선발사 허용 · 선발사 800ms
+[08:59:59.322] T0 발사: 2027-09-20 KE932 FCO-ICN KEBONUSPR · 문서 oreanair.com/booking/calendar-fare-bonus
+[09:00:01.147] 조회#1 status=200 1808ms 판정=selected → selected(selected) (+1.825s)
+[09:00:02.838] 운임 status=200 1685ms 판정=validated (+3.516s)
+[09:00:02.840] 필수 검증·주문 준비 판정=ready (+3.518s)
+[09:00:02.849] 주문 전 인계 점검 통과 (10ms)
+[09:00:06.034] 허용 항목 주문 증거 저장 완료 (식별자 원문은 터미널에 출력하지 않음)
+[09:00:06.043] 주문 판정 신호 기록: business-error
+[09:00:06.047] 주문 status=200 3152ms 판정=business-error (+6.695s)
+[09:00:06.050] 주문 응답 진단(개인정보 제외): {"responseObject": true, "referencePresent": false, "fareObject": false, "error": {"code": "ERT.15012", "message": "운임 및 좌석 상황이 변하여 예약을 완료할 수 없습니다. 조건을 바꿔서 다시 검색해 주세요.", "subMessages": [{"message": "We are unable to confirm the fare for the flights you have selected. Please choose a different fare or flights and resubmit your request. (<n> - 1009)"}]}}
+[09:00:06.050] 주문 응답 검증 실패 - 재전송하지 않는다. 좌석 상태는 미확인이며 예약 목록으로 판정하지 않는다
+[09:00:06.050] 응답 메모리 보존 중. summary=금액 진단, exit=종료. 재주문·최종 결제·잠금 해제 없음.
+[09:00:06.050] resume=같은 응답 재검증·화면 인계 1회. 새 주문 전송·최종 결제 없음.

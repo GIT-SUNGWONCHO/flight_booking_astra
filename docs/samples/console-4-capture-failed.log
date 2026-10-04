@@ -1,0 +1,13 @@
+[08:37:59] [api_day] live_order 시작: 발사 09:00:04 · 점검 08:50:00 · 상태폴더 <저장소>\dev-shots\state-c
+[08:38:02.175] 시계 보정(시작): 오프셋 -129.7ms · 불확실성 ±28.3ms · 기준 time.google.com · 선발사 허용
+[08:38:02.617] 후킹 설치. 현재 https://www.koreanair.com/booking/calendar-fare-bonus
+[08:38:02.618] 09월 15일 일반석 로 준비 통과를 시작한다(주문 요청은 차단)
+[08:38:02.651]   날짜 09월 15일: {'x': 539.9921875, 'y': 815.5, 'selected': True, 'soldout': False} (셀 42개)
+[08:38:13.710]   검색 1회차 이동 없음, 재시도
+[08:38:27.756]   검색 2회차 이동 없음, 재시도
+[08:38:41.792]   검색 3회차 이동 없음, 재시도
+[08:38:44.795]   검색 → oreanair.com/booking/calendar-fare-bonus
+[08:38:44.804] 준비 통과 결과: {'calendar': True, 'date': True, 'search': False, 'orderRequests': {'seen': 0, 'blocked': 0, 'unblocked': 0}, 'siteRequests': {}}
+[08:38:44.818] 준비 통과가 승객·연락처 확인까지 끝나지 않았다 - 중단. 화면을 확인하고 다시 준비한다
+[08:38:44.833] 구간별 호출 수: {'prep': {'inputTravellers-blocked': 0, 'inputTravellers-unblocked': 0}, 'fire': {}, 'handoff': {}, 'observe': {}, 'health': {}}
+[08:38:44] [api_day] 끝: live_order 종료 코드 2. 보고서 <저장소>\dev-shots\api-day\live-20260925-082001-6e8e0a.json

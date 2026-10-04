@@ -1,0 +1,1332 @@
+{
+  "runId": "20260925-082220-4d345522",
+  "kind": "award-observer",
+  "rehearsal": false,
+  "route": "FCO-ICN KE932",
+  "target": "2027-09-20",
+  "family": "KEBONUSPR",
+  "openAt": "2026-09-25T09:00:00+09:00",
+  "clock": {
+    "ok": true,
+    "offset": -0.17840516567230225,
+    "uncertainty": 0.03131997585296631,
+    "source": "time.google.com",
+    "measuredAt": 1790292142.621233
+  },
+  "settings": {
+    "mode": "award",
+    "denseFromMs": -1800,
+    "denseToMs": 6000,
+    "denseGapMs": 150,
+    "sparseGapMs": 300,
+    "postMs": 10000,
+    "maxInflight": 12,
+    "maxLagMs": 100,
+    "serverClockSeconds": 4.0
+  },
+  "slots": 66,
+  "ok": true,
+  "why": "측정 종료",
+  "events": [
+    {
+      "kind": "response",
+      "id": 0,
+      "due": 1790294398307.1042,
+      "sentAt": 1790294398308,
+      "lagMs": 0.895751953125,
+      "receivedAt": 1790294399737.9,
+      "status": 200,
+      "bytes": 1115,
+      "state": "open",
+      "flights": 0,
+      "target": "no-flights"
+    },
+    {
+      "kind": "response",
+      "id": 1,
+      "due": 1790294398457.1042,
+      "sentAt": 1790294398458,
+      "lagMs": 0.895751953125,
+      "receivedAt": 1790294400000.4,
+      "status": 200,
+      "bytes": 1115,
+      "state": "open",
+      "flights": 0,
+      "target": "no-flights"
+    },
+    {
+      "kind": "response",
+      "id": 2,
+      "due": 1790294398607.1042,
+      "sentAt": 1790294398609,
+      "lagMs": 1.895751953125,
+      "receivedAt": 1790294400089.5,
+      "status": 200,
+      "bytes": 1115,
+      "state": "open",
+      "flights": 0,
+      "target": "no-flights"
+    },
+    {
+      "kind": "response",
+      "id": 3,
+      "due": 1790294398757.1042,
+      "sentAt": 1790294398759,
+      "lagMs": 1.895751953125,
+      "receivedAt": 1790294400233.6,
+      "status": 200,
+      "bytes": 1115,
+      "state": "open",
+      "flights": 0,
+      "target": "no-flights"
+    },
+    {
+      "kind": "response",
+      "id": 4,
+      "due": 1790294398907.1042,
+      "sentAt": 1790294398910,
+      "lagMs": 2.895751953125,
+      "receivedAt": 1790294400449.4,
+      "status": 200,
+      "bytes": 1115,
+      "state": "open",
+      "flights": 0,
+      "target": "no-flights"
+    },
+    {
+      "kind": "response",
+      "id": 5,
+      "due": 1790294399057.1042,
+      "sentAt": 1790294399059,
+      "lagMs": 1.895751953125,
+      "receivedAt": 1790294400703,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 9,
+      "due": 1790294399657.1042,
+      "sentAt": 1790294399659,
+      "lagMs": 1.895751953125,
+      "receivedAt": 1790294400733.7,
+      "status": 200,
+      "bytes": 701,
+      "state": "error",
+      "code": "ERT.3002",
+      "message": "정상적으로 처리되지 않았습니다. 잠시 후 다시 시도해 주세요.",
+      "sub": ""
+    },
+    {
+      "kind": "response",
+      "id": 6,
+      "due": 1790294399207.1042,
+      "sentAt": 1790294399209,
+      "lagMs": 1.895751953125,
+      "receivedAt": 1790294400765,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 7,
+      "due": 1790294399357.1042,
+      "sentAt": 1790294399361,
+      "lagMs": 3.895751953125,
+      "receivedAt": 1790294401066.3,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 8,
+      "due": 1790294399507.1042,
+      "sentAt": 1790294399508,
+      "lagMs": 0.895751953125,
+      "receivedAt": 1790294401084.7,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 10,
+      "due": 1790294399807.1042,
+      "sentAt": 1790294399812,
+      "lagMs": 4.895751953125,
+      "receivedAt": 1790294401220.4,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 11,
+      "due": 1790294399957.1042,
+      "sentAt": 1790294399962,
+      "lagMs": 4.895751953125,
+      "receivedAt": 1790294401337.6,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 14,
+      "due": 1790294400407.1042,
+      "sentAt": 1790294400408,
+      "lagMs": 0.895751953125,
+      "receivedAt": 1790294401839.9,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 12,
+      "due": 1790294400107.1042,
+      "sentAt": 1790294400108,
+      "lagMs": 0.895751953125,
+      "receivedAt": 1790294401852.4,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 13,
+      "due": 1790294400257.1042,
+      "sentAt": 1790294400261,
+      "lagMs": 3.895751953125,
+      "receivedAt": 1790294402067.3,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 15,
+      "due": 1790294400557.1042,
+      "sentAt": 1790294400562,
+      "lagMs": 4.895751953125,
+      "receivedAt": 1790294402067.7,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 16,
+      "due": 1790294400707.1042,
+      "sentAt": 1790294400709,
+      "lagMs": 1.895751953125,
+      "receivedAt": 1790294402266.5,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 17,
+      "due": 1790294400857.1042,
+      "sentAt": 1790294400862,
+      "lagMs": 4.895751953125,
+      "receivedAt": 1790294402379.4,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 18,
+      "due": 1790294401007.1042,
+      "sentAt": 1790294401011,
+      "lagMs": 3.895751953125,
+      "receivedAt": 1790294402520.9,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 19,
+      "due": 1790294401157.1042,
+      "sentAt": 1790294401159,
+      "lagMs": 1.895751953125,
+      "receivedAt": 1790294402659.3,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 20,
+      "due": 1790294401307.1042,
+      "sentAt": 1790294401310,
+      "lagMs": 2.895751953125,
+      "receivedAt": 1790294402967.7,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "skipped",
+      "id": 33,
+      "due": 1790294403257.1042,
+      "why": "inflight"
+    },
+    {
+      "kind": "response",
+      "id": 23,
+      "due": 1790294401757.1042,
+      "sentAt": 1790294401762,
+      "lagMs": 4.895751953125,
+      "receivedAt": 1790294403300.8,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 22,
+      "due": 1790294401607.1042,
+      "sentAt": 1790294401612,
+      "lagMs": 4.895751953125,
+      "receivedAt": 1790294403429.3,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 25,
+      "due": 1790294402057.1042,
+      "sentAt": 1790294402060,
+      "lagMs": 2.895751953125,
+      "receivedAt": 1790294403431.3,
+      "status": 200,
+      "bytes": 701,
+      "state": "error",
+      "code": "ERT.3002",
+      "message": "정상적으로 처리되지 않았습니다. 잠시 후 다시 시도해 주세요.",
+      "sub": ""
+    },
+    {
+      "kind": "response",
+      "id": 21,
+      "due": 1790294401457.1042,
+      "sentAt": 1790294401460,
+      "lagMs": 2.895751953125,
+      "receivedAt": 1790294403441.9,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 24,
+      "due": 1790294401907.1042,
+      "sentAt": 1790294401912,
+      "lagMs": 4.895751953125,
+      "receivedAt": 1790294403507.5,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 26,
+      "due": 1790294402207.1042,
+      "sentAt": 1790294402209,
+      "lagMs": 1.895751953125,
+      "receivedAt": 1790294403804.5,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 27,
+      "due": 1790294402357.1042,
+      "sentAt": 1790294402360,
+      "lagMs": 2.895751953125,
+      "receivedAt": 1790294403870.6,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 28,
+      "due": 1790294402507.1042,
+      "sentAt": 1790294402512,
+      "lagMs": 4.895751953125,
+      "receivedAt": 1790294404104.1,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 30,
+      "due": 1790294402807.1042,
+      "sentAt": 1790294402809,
+      "lagMs": 1.895751953125,
+      "receivedAt": 1790294404317.4,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 29,
+      "due": 1790294402657.1042,
+      "sentAt": 1790294402662,
+      "lagMs": 4.895751953125,
+      "receivedAt": 1790294404360.7,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 31,
+      "due": 1790294402957.1042,
+      "sentAt": 1790294402958,
+      "lagMs": 0.895751953125,
+      "receivedAt": 1790294404435.4,
+      "status": 200,
+      "bytes": 701,
+      "state": "error",
+      "code": "ERT.3002",
+      "message": "정상적으로 처리되지 않았습니다. 잠시 후 다시 시도해 주세요.",
+      "sub": ""
+    },
+    {
+      "kind": "response",
+      "id": 35,
+      "due": 1790294403557.1042,
+      "sentAt": 1790294403558,
+      "lagMs": 0.895751953125,
+      "receivedAt": 1790294404667.4,
+      "status": 200,
+      "bytes": 701,
+      "state": "error",
+      "code": "ERT.3002",
+      "message": "정상적으로 처리되지 않았습니다. 잠시 후 다시 시도해 주세요.",
+      "sub": ""
+    },
+    {
+      "kind": "response",
+      "id": 32,
+      "due": 1790294403107.1042,
+      "sentAt": 1790294403108,
+      "lagMs": 0.895751953125,
+      "receivedAt": 1790294404669.6,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 34,
+      "due": 1790294403407.1042,
+      "sentAt": 1790294403408,
+      "lagMs": 0.895751953125,
+      "receivedAt": 1790294404900.9,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 36,
+      "due": 1790294403707.1042,
+      "sentAt": 1790294403712,
+      "lagMs": 4.895751953125,
+      "receivedAt": 1790294405329.4,
+      "status": 200,
+      "bytes": 3812,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "1",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "1"
+      },
+      "soldout": false,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 37,
+      "due": 1790294403857.1042,
+      "sentAt": 1790294403860,
+      "lagMs": 2.895751953125,
+      "receivedAt": 1790294405449.8,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 38,
+      "due": 1790294404007.1042,
+      "sentAt": 1790294404008,
+      "lagMs": 0.895751953125,
+      "receivedAt": 1790294405497.7,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 39,
+      "due": 1790294404157.1042,
+      "sentAt": 1790294404160,
+      "lagMs": 2.895751953125,
+      "receivedAt": 1790294405729.4,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 41,
+      "due": 1790294404457.1042,
+      "sentAt": 1790294404458,
+      "lagMs": 0.895751953125,
+      "receivedAt": 1790294405966.6,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 42,
+      "due": 1790294404607.1042,
+      "sentAt": 1790294404608,
+      "lagMs": 0.895751953125,
+      "receivedAt": 1790294406120.2,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 40,
+      "due": 1790294404307.1042,
+      "sentAt": 1790294404312,
+      "lagMs": 4.895751953125,
+      "receivedAt": 1790294406266.8,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 43,
+      "due": 1790294404757.1042,
+      "sentAt": 1790294404758,
+      "lagMs": 0.895751953125,
+      "receivedAt": 1790294406356.4,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 45,
+      "due": 1790294405057.1042,
+      "sentAt": 1790294405060,
+      "lagMs": 2.895751953125,
+      "receivedAt": 1790294406549.6,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 44,
+      "due": 1790294404907.1042,
+      "sentAt": 1790294404911,
+      "lagMs": 3.895751953125,
+      "receivedAt": 1790294406704.1,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 48,
+      "due": 1790294405507.1042,
+      "sentAt": 1790294405510,
+      "lagMs": 2.895751953125,
+      "receivedAt": 1790294407056.8,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 49,
+      "due": 1790294405657.1042,
+      "sentAt": 1790294405662,
+      "lagMs": 4.895751953125,
+      "receivedAt": 1790294407057.3,
+      "status": 200,
+      "bytes": 701,
+      "state": "error",
+      "code": "ERT.3002",
+      "message": "정상적으로 처리되지 않았습니다. 잠시 후 다시 시도해 주세요.",
+      "sub": ""
+    },
+    {
+      "kind": "response",
+      "id": 50,
+      "due": 1790294405807.1042,
+      "sentAt": 1790294405810,
+      "lagMs": 2.895751953125,
+      "receivedAt": 1790294407057.6,
+      "status": 200,
+      "bytes": 701,
+      "state": "error",
+      "code": "ERT.3002",
+      "message": "정상적으로 처리되지 않았습니다. 잠시 후 다시 시도해 주세요.",
+      "sub": ""
+    },
+    {
+      "kind": "response",
+      "id": 46,
+      "due": 1790294405207.1042,
+      "sentAt": 1790294405211,
+      "lagMs": 3.895751953125,
+      "receivedAt": 1790294407178.9,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 47,
+      "due": 1790294405357.1042,
+      "sentAt": 1790294405358,
+      "lagMs": 0.895751953125,
+      "receivedAt": 1790294407178.7,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 51,
+      "due": 1790294405957.1042,
+      "sentAt": 1790294405958,
+      "lagMs": 0.895751953125,
+      "receivedAt": 1790294407501.7,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 52,
+      "due": 1790294406107.1042,
+      "sentAt": 1790294406111,
+      "lagMs": 3.895751953125,
+      "receivedAt": 1790294407739.7,
+      "status": 200,
+      "bytes": 701,
+      "state": "error",
+      "code": "ERT.3002",
+      "message": "정상적으로 처리되지 않았습니다. 잠시 후 다시 시도해 주세요.",
+      "sub": ""
+    },
+    {
+      "kind": "response",
+      "id": 53,
+      "due": 1790294406407.1042,
+      "sentAt": 1790294406410,
+      "lagMs": 2.895751953125,
+      "receivedAt": 1790294407915.3,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 55,
+      "due": 1790294407007.1042,
+      "sentAt": 1790294407011,
+      "lagMs": 3.895751953125,
+      "receivedAt": 1790294408572,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 56,
+      "due": 1790294407307.1042,
+      "sentAt": 1790294407310,
+      "lagMs": 2.895751953125,
+      "receivedAt": 1790294408817,
+      "status": 200,
+      "bytes": 701,
+      "state": "error",
+      "code": "ERT.3002",
+      "message": "정상적으로 처리되지 않았습니다. 잠시 후 다시 시도해 주세요.",
+      "sub": ""
+    },
+    {
+      "kind": "response",
+      "id": 54,
+      "due": 1790294406707.1042,
+      "sentAt": 1790294406710,
+      "lagMs": 2.895751953125,
+      "receivedAt": 1790294408837.7,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 57,
+      "due": 1790294407607.1042,
+      "sentAt": 1790294407611,
+      "lagMs": 3.895751953125,
+      "receivedAt": 1790294409198.6,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "5",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 60,
+      "due": 1790294408507.1042,
+      "sentAt": 1790294408510,
+      "lagMs": 2.895751953125,
+      "receivedAt": 1790294409655.5,
+      "status": 200,
+      "bytes": 701,
+      "state": "error",
+      "code": "ERT.3002",
+      "message": "정상적으로 처리되지 않았습니다. 잠시 후 다시 시도해 주세요.",
+      "sub": ""
+    },
+    {
+      "kind": "response",
+      "id": 58,
+      "due": 1790294407907.1042,
+      "sentAt": 1790294407908,
+      "lagMs": 0.895751953125,
+      "receivedAt": 1790294409778.6,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "4",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 61,
+      "due": 1790294408807.1042,
+      "sentAt": 1790294408812,
+      "lagMs": 4.895751953125,
+      "receivedAt": 1790294409843.5,
+      "status": 200,
+      "bytes": 701,
+      "state": "error",
+      "code": "ERT.3002",
+      "message": "정상적으로 처리되지 않았습니다. 잠시 후 다시 시도해 주세요.",
+      "sub": ""
+    },
+    {
+      "kind": "response",
+      "id": 59,
+      "due": 1790294408207.1042,
+      "sentAt": 1790294408212,
+      "lagMs": 4.895751953125,
+      "receivedAt": 1790294410012.5,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "4",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 63,
+      "due": 1790294409407.1042,
+      "sentAt": 1790294409410,
+      "lagMs": 2.895751953125,
+      "receivedAt": 1790294410435.5,
+      "status": 200,
+      "bytes": 701,
+      "state": "error",
+      "code": "ERT.3002",
+      "message": "정상적으로 처리되지 않았습니다. 잠시 후 다시 시도해 주세요.",
+      "sub": ""
+    },
+    {
+      "kind": "response",
+      "id": 62,
+      "due": 1790294409107.1042,
+      "sentAt": 1790294409112,
+      "lagMs": 4.895751953125,
+      "receivedAt": 1790294410787.8,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "4",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 64,
+      "due": 1790294409707.1042,
+      "sentAt": 1790294409708,
+      "lagMs": 0.895751953125,
+      "receivedAt": 1790294411516.8,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "4",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    },
+    {
+      "kind": "response",
+      "id": 65,
+      "due": 1790294410007.1042,
+      "sentAt": 1790294410011,
+      "lagMs": 3.895751953125,
+      "receivedAt": 1790294411667,
+      "status": 200,
+      "bytes": 3588,
+      "state": "open",
+      "flights": 1,
+      "target": "found",
+      "seat": "0",
+      "seats": {
+        "KEBONUSEY": "4",
+        "KEBONUSPR": "0"
+      },
+      "soldout": true,
+      "flightSoldOut": false
+    }
+  ],
+  "responses": 65,
+  "notOpen": 0,
+  "open": 54,
+  "errors": {
+    "ERT.3002": 11
+  },
+  "skipped": 1,
+  "maxLagMs": 4.895751953125,
+  "elapsedMedianMs": 1547,
+  "elapsedMaxMs": 2128,
+  "bytesMedian": 3588,
+  "targetStates": [
+    "found",
+    "no-flights"
+  ],
+  "firstSeat": "1",
+  "edge": {
+    "lastNotOpenSent": null,
+    "firstOpenSent": -1.799,
+    "lastNotOpenReceived": null,
+    "firstOpenReceived": -0.369
+  },
+  "seatChanges": [
+    {
+      "from": "1",
+      "to": "0",
+      "lastSentWithFrom": 3.605,
+      "firstSentWithTo": 3.753,
+      "firstReceivedWithTo": 5.343
+    }
+  ],
+  "interpretation": "경계·좌석 변화는 송신~수신 구간으로만 말한다. 서버가 처리 중 언제 재고를 읽는지는 모른다.",
+  "capture": {
+    "capturedOn": "2027-09-15",
+    "headerNames": [
+      "accept",
+      "accept-language",
+      "channel",
+      "content-type",
+      "ksessionid",
+      "priority",
+      "timestamp",
+      "traceparent",
+      "tracestate",
+      "x-queueit-ajaxpageurl"
+    ],
+    "travelerCount": 1
+  },
+  "prepared": true,
+  "serverClock": {
+    "samples": 51,
+    "edges": [
+      {
+        "serverSecond": 1790294325.0,
+        "aheadLowMs": 51.3,
+        "aheadHighMs": 140.3,
+        "widthMs": 89.0
+      },
+      {
+        "serverSecond": 1790294326.0,
+        "aheadLowMs": -696.4,
+        "aheadHighMs": 436.3,
+        "widthMs": 1132.7
+      },
+      {
+        "serverSecond": 1790294327.0,
+        "aheadLowMs": 46.6,
+        "aheadHighMs": 136.5,
+        "widthMs": 89.9
+      }
+    ],
+    "rttMedianMs": 44.5,
+    "localAheadOfServerMs": [
+      51.3,
+      136.5
+    ],
+    "host": "www.koreanair.com",
+    "path": "/kr/ko",
+    "seconds": 4.0,
+    "gapMs": 50,
+    "failures": 0,
+    "measuredAt": "2026-09-25T08:58:48.074",
+    "trueAheadOfServerMs": [
+      -127.1,
+      -41.9
+    ],
+    "clockOffsetMs": -178.4
+  },
+  "clockFinal": {
+    "ok": true,
+    "offset": -0.10710430145263672,
+    "uncertainty": 0.007932901382446289,
+    "source": "time.windows.com",
+    "measuredAt": 1790294339.247264
+  }
+}

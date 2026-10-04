@@ -1,0 +1,66 @@
+[08:20:01] [api_day] 계측 9233 체인 시작(PID 30084, 로그 observer-20260925-082001-689d26.log) - 실패해도 예매는 계속
+[08:20:01] [api_day] chrome-9232-restart: 시작
+    Profile name saved: ASTRA · 9232 · 예매
+    Astra Chrome port 9232 ready
+[08:20:13] [api_day] 준비 시도 1/3
+[08:20:13] [api_day] setup-calendar: 시작
+      출발지 FCO 로 변경 시도
+        검색칸에 코드 입력
+        출발지 선택: 로마/레오나르도 다빈치, 이탈리아 FCO -> 현재 출발지 FCO 로마
+      도착지 ICN 로 변경 시도
+        검색칸에 코드 입력
+        도착지 선택: 서울/인천, 대한민국 ICN -> 현재 도착지 ICN 서울/인천
+      출발일 설정: 목표 2027-09-15 / 현재 '출발일 가는 날'
+        달 이동 6회 -> 보이는 달 ['2027년 9월', '2027년 10월'] (목표 2027년 9월)
+        목표일 선택: 15 15일, 수요일, 공휴일 , 가는 날 선택됨
+      항공편 검색
+      달력 도착: https://www.koreanair.com/booking/calendar-fare-bonus
+    {"ok": true, "url": "https://www.koreanair.com/booking/calendar-fare-bonus", "why": ""}
+[08:22:22] [api_day] 캡처 시작 08:38:00 까지 937초 대기
+[08:37:59] [api_day] live_order 시작: 발사 09:00:00 · 점검 08:50:00 · 상태폴더 기본
+[08:38:02.178] 시계 보정(시작): 오프셋 -130.3ms · 불확실성 ±30.2ms · 기준 time.google.com · 선발사 허용
+[08:38:02.614] 후킹 설치. 현재 https://www.koreanair.com/booking/calendar-fare-bonus
+[08:38:02.614] 09월 15일 일반석 로 준비 통과를 시작한다(주문 요청은 차단)
+[08:38:02.649]   날짜 09월 15일: {'x': 538.953125, 'y': 815.5, 'selected': True, 'soldout': False} (셀 42개)
+[08:38:13.725]   검색 → om/booking/select-award-flight/departure
+[08:38:17.715]   통화 준비: bounced
+[08:38:17.721]   날짜 09월 15일: {'x': 538.953125, 'y': 815.5, 'selected': True, 'soldout': False} (셀 42개)
+[08:38:28.760]   검색 → om/booking/select-award-flight/departure
+[08:38:28.764]   통화 준비: krw
+[08:38:28.764]   통화 KRW 확인: True
+[08:38:31.844]   운임 선택: True
+[08:38:43.883]   다음 → s://www.koreanair.com/payment/gate/RT/NR
+[08:38:59.634]   승객=True 연락처=True
+[08:38:59.643] 준비 통과 결과: {'calendar': True, 'date': True, 'search': True, 'currency': True, 'fare': True, 'next': True, 'passenger': True, 'contact': True, 'orderRequests': {'seen': 1, 'blocked': 1, 'unblocked': 0}, 'siteRequests': {'awardAvailability': 2, 'fareInformation': 1, 'inputTravellers': 1}}
+[08:38:59.651] 3구간 캡처를 메모리에 확보(이번 준비 세대)
+[08:39:07.504]   달력 복귀: 셀 42개 · oreanair.com/booking/calendar-fare-bonus
+[08:39:07.548] 시계 대조: 로컬-서버 +0.5초 (왕복 0.03s, 서버 Date 는 초 단위라 ±1초 불확실). 양수면 로컬이 빠름
+[08:39:09.061] [arm] 점검 조회(2027-09-15) 판정=selected 통화=KRW 편=['932'] 토큰={'known': True, 'secondsAfterOpen': 1141, 'reason': None}
+[08:39:09.062] [arm] 점검 통과
+[08:39:09.062] 2026-09-25 09:00:00 (선발사 800ms, 보정 시각) 까지 1250초 대기. 이 프로세스를 내리면 메모리 캡처가 사라진다
+[08:40:09.061] 대기 1190초 남음 · 준비 유지=True · .com/booking/calendar-fare-bonus
+            ... (1분마다 같은 줄 10개 생략)
+[08:50:01.548] [health] 점검 조회(2027-09-15) 판정=selected 통화=KRW 편=['932'] 토큰={'known': True, 'secondsAfterOpen': 1565, 'reason': None}
+[08:50:01.548] [health] 점검 통과
+[08:51:01.547] 대기 538초 남음 · 준비 유지=True · .com/booking/calendar-fare-bonus
+            ... (1분마다 같은 줄 8개 생략)
+[08:59:01.628] 시계 보정(최종): 오프셋 -112.3ms · 불확실성 ±2.8ms · 기준 time.windows.com · 선발사 허용 · 선발사 800ms
+[08:59:59.321] T0 발사: 2027-09-20 KE932 FCO-ICN KEBONUSPR · 문서 oreanair.com/booking/calendar-fare-bonus
+[09:00:00.797] 조회#1 status=200 1457ms 판정=selected → selected(selected) (+1.484s)
+[09:00:02.152] 운임 status=200 1348ms 판정=validated (+2.840s)
+[09:00:02.153] 필수 검증·주문 준비 판정=ready (+2.840s)
+[09:00:02.160] 주문 전 인계 점검 통과 (8ms)
+[09:00:08.870] 허용 항목 주문 증거 저장 완료 (식별자 원문은 터미널에 출력하지 않음)
+[09:00:08.878] 주문 판정 신호 기록: order-recorded
+[09:00:08.881] 주문 status=200 6682ms 판정=order-recorded (+9.543s)
+[09:00:08.885] 주문 응답 확인  **T0 → 주문 응답 9.543초** (보유 시작 시각은 미확인)
+[09:00:14.192] 인계 확인: {"matched": true, "sessionUnchanged": true, "cookieStampUnchanged": false, "displayHints": {"date": true, "mileage": true, "krw": true}}
+[09:00:20.282]   동의 btn-resv-agree-1: agreed (전 off, 클릭 True, 확인 True)
+[09:00:26.047]   동의 btn-resv-agree-3: agreed (전 off, 클릭 True, 확인 True)
+[09:00:27.676]   현대카드 선택: {'verified': True, 'select': 'set', 'result': 'hyundai-selected'}
+[09:00:28.346]   결제하기 클릭: True
+[09:00:29.967]   **이번 주문의 현대카드 인증수단 선택 창에 도착했다. 창 안에서는 누르지 않는다. 결제는 사용자.**
+[09:00:29.972] 상태 인계 결과: hyundai-card-window, 실제 결제창 완료=True
+[09:00:30.924] **[사용자 차례] 현대카드 창이 열렸다. 앱카드/PIN 인증과 최종 결제는 사용자가 한다.**
+[09:00:30.969] 구간별 호출 수: {'prep': {'awardAvailability': 2, 'fareInformation': 1, 'inputTravellers': 1, 'inputTravellers-blocked': 1, 'inputTravellers-unblocked': 0}, 'fire': {'awardAvailability-attempt': 1, 'awardAvailability-fetched': 1, 'fareInformation-attempt': 1, 'fareInformation-fetched': 1, 'inputTravellers-attempt': 1, 'inputTravellers-fetched': 1}, 'handoff': {'bridge:hyundai-card-window': 1}, 'observe': {}, 'health': {'arm-awardAvailability': 1, 'health-awardAvailability': 1}}
+[09:00:31] [api_day] 끝: live_order 종료 코드 0. 보고서 <저장소>\dev-shots\api-day\live-20260925-082001-689d26.json

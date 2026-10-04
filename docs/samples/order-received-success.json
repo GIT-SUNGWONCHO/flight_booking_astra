@@ -1,0 +1,59 @@
+{
+  "runId": "dfac77ec2f00",
+  "pnr": "XXXXXX",
+  "orderId": null,
+  "target": {
+    "date": "2027-09-20",
+    "origin": "FCO",
+    "destination": "ICN",
+    "carrier": "KE",
+    "flight": "932",
+    "family": "KEBONUSPR"
+  },
+  "segmentStatus": "HK",
+  "currency": "KRW",
+  "totalAmount": "685700.00",
+  "mileage": "62500",
+  "serverOrderCreatedAt": null,
+  "serverCreated": {
+    "createDateTime": {
+      "length": 14,
+      "digits": 14,
+      "precision": "minute",
+      "secondsFromRequest": -32402.2
+    },
+    "createDateTimeOfKST": {
+      "length": 14,
+      "digits": 14,
+      "precision": "minute",
+      "secondsFromRequest": -2.2
+    }
+  },
+  "orderRequestStartedAt": "2026-09-25T00:00:02.175000+00:00",
+  "orderResponseReceivedAt": "2026-09-25T00:00:08.855507+00:00",
+  "passengerFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+  "diagnostic": {
+    "state": "received",
+    "responseObject": true,
+    "httpStatus": 200,
+    "currencyMatches": true,
+    "values": {
+      "amount": {
+        "fare": "0",
+        "order": "685700.00",
+        "matches": false
+      },
+      "totalAmount": {
+        "fare": "685700",
+        "order": "685700.00",
+        "matches": true
+      },
+      "mileage": {
+        "fare": "62500",
+        "order": "62500",
+        "matches": true
+      }
+    },
+    "error": null
+  }
+}
