@@ -31,8 +31,8 @@ def check(ok: bool, label: str, detail: str = "") -> None:
 STEPS = """(expect) => {
   const R = window.KE_REC;
   R.state.steps = [
-    {dynamicDate:true, idPrefix:'dep-fare-', sel:'', text:'(날짜)', tag:'td', url:'/x'},
-    {sel:'#next', text:'다음', tag:'button', url:'/x'}
+    {dynamicDate:true, idPrefix:'dep-fare-', sel:'', text:'(날짜)', tag:'td', url:'/openwait.html'},
+    {sel:'#next', text:'다음', tag:'button', url:'/openwait.html'}
   ];
   R.state.expectDate = expect;
   R.state.idx = 0; R.state.startedAt = 0; R.state.problem = false;
@@ -62,7 +62,7 @@ def main() -> int:
             pg.reload()
             pg.wait_for_timeout(300)
             pg.evaluate(STEPS, "08-21")
-            pg.wait_for_function("() => !window.KE_REC.state.playing", timeout=40000)
+            pg.wait_for_function("() => window.KE_REC && !KE_REC.state.playing && !KE_REC.state.playAfterReload", timeout=40000)
             st = pg.evaluate("""() => ({loads: window.__loads, picked: window.__picked || null,
               next: !!window.__next, idx: KE_REC.state.idx, total: KE_REC.state.steps.length,
               problem: KE_REC.state.problem, msg: KE_REC.state.message})""")
@@ -79,7 +79,7 @@ def main() -> int:
             pg.evaluate("sessionStorage.setItem('loads','5')")
             pg.wait_for_timeout(300)
             pg.evaluate(STEPS.replace("openWaitMaxMs = 15000", "openWaitMaxMs = 2500"), "12-25")
-            pg.wait_for_function("() => !window.KE_REC.state.playing", timeout=40000)
+            pg.wait_for_function("() => window.KE_REC && !KE_REC.state.playing && !KE_REC.state.playAfterReload", timeout=40000)
             st2 = pg.evaluate("() => ({problem: KE_REC.state.problem, msg: KE_REC.state.message})")
             check(st2["problem"] is True, "안 열리면 문제로 표시하고 멈춤")
             check("안 열렸습니다" in (st2["msg"] or ""), "왜 멈췄는지 알림", st2["msg"])

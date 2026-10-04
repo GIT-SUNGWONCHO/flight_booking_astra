@@ -29,7 +29,7 @@ class BookingFailures(unittest.TestCase):
         self.ctx = self.browser.new_context()
         self.addCleanup(self.ctx.close)
         self.ctx.add_init_script(self.js)
-        self.ctx.route('**/*', lambda r: r.fulfill(content_type='text/html', body='<html><body>시험</body></html>'))
+        self.ctx.route('**/*', lambda r: r.fulfill(content_type='text/html; charset=utf-8', body='<html><body>시험</body></html>'))
         self.page = self.ctx.new_page()
 
     def land(self, path):
@@ -68,7 +68,7 @@ class BookingFailures(unittest.TestCase):
         def calendar(route):
             loads.append(1)
             enabled=len(loads)>1
-            route.fulfill(content_type='text/html',body='''<div id="dep-fare-21">21 08월 21일 E</div>
+            route.fulfill(content_type='text/html; charset=utf-8',body='''<div id="dep-fare-21">21 08월 21일 E</div>
                 <div id="dep-fare-22" aria-disabled="'''+('false' if enabled else 'true')+'''">22 08월 22일 <span id="p">P</span></div>
                 <script>window.clicked=0;document.querySelector('#dep-fare-22').onclick=()=>{clicked++;document.querySelector('#p').remove();};</script>''')
         self.ctx.route(HOST+CAL, calendar)
@@ -80,7 +80,7 @@ class BookingFailures(unittest.TestCase):
         self.assertEqual(self.page.evaluate('KE_REC.state.idx'),1)
 
     def test_unopened_calendar_stops_and_terminal_message_survives_reload(self):
-        self.ctx.route(HOST+CAL,lambda r:r.fulfill(content_type='text/html',body='<div id="dep-fare-21">21 08월 21일</div>'))
+        self.ctx.route(HOST+CAL,lambda r:r.fulfill(content_type='text/html; charset=utf-8',body='<div id="dep-fare-21">21 08월 21일</div>'))
         self.land(CAL)
         self.play([{'dynamicDate':True,'url':CAL}])
         msg=self.stopped()
@@ -95,7 +95,7 @@ class BookingFailures(unittest.TestCase):
                                 (200,{'code':503},'application-error'),(200,{},'schema-error')]:
             with self.subTest(status=status,kind=kind):
                 self.land(DEP)
-                self.ctx.route(HOST+API,lambda r,s=status,b=body:r.fulfill(status=s,content_type='application/json',body=json.dumps(b)))
+                self.ctx.route(HOST+API,lambda r,*,s=status,b=body:r.fulfill(status=s,content_type='application/json',body=json.dumps(b)))
                 self.page.evaluate('url => fetch(url).then(r=>r.text())',API)
                 self.page.wait_for_function("KE_PROBE.availabilityState()?.state !== 'pending'")
                 self.play([{'dynamicCabin':True,'url':DEP}])

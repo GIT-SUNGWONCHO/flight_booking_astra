@@ -10,9 +10,9 @@
 | `ke_award/recorder.js`·`util.js`·`steps.json`·`hud.js`·`editor.js`·`autoconfirm.js`·`probe.js` | 17단계 녹화 재생·날짜/등급 동적 선택·HUD(대기·선발사 2500ms) |
 | `build.mjs` → `userscript/ke-award-macro.user.js` | JS 원본을 사용자 스크립트로 빌드. 산출물을 직접 고치지 않는다 |
 | `ke_award/runner.py`·`clock.py`·`__main__.py` | Playwright 러너·NTP(`clock.py`는 API의 `measure_clock`도 사용) |
-| `dev/prepare_day.py`·`check_day.py`·`worker_health.py`·`stage_process.py` | 08:20 준비·읽기 점검·작업자 수명 |
-| `dev/manual_booking.py`·`hybrid.py`·`departure_live.py`·`network_trace.py` | 사용자 대기·정시 발사·조회 화면 경로·네트워크 증거 |
-| `dev/autorun.py`·`daily.py`·`rehearse.py`·`ke_setup.py`·`watch_seats.py`·`preflight.py`·`drive.py` | 과거 실행기·리허설·보조. 현재 운영 명령과 섞지 않는다 |
+| `macro/prepare_day.py`·`check_day.py`·`worker_health.py`·`stage_process.py` | 08:20 준비·읽기 점검·작업자 수명 |
+| `macro/manual_booking.py`·`hybrid.py`·`departure_live.py`·`network_trace.py` | 사용자 대기·정시 발사·조회 화면 경로·네트워크 증거 |
+| `macro/autorun.py`·`daily.py`·`rehearse.py`·`ke_setup.py`·`watch_seats.py`·`preflight.py`·`drive.py` | 과거 실행기·리허설·보조. 현재 운영 명령과 섞지 않는다 |
 | `dev/*.ps1`·`*.cmd`·`*.sh`(`day.ps1`, `morning.ps1`, `browsers.ps1`, `astra_target.ps1`, `daily.cmd`, `dev-browser*.cmd/sh`) | Windows/Mac 실행 보조 |
 
 ## 2. 유지할 동작 조건 (재개 시 그대로 적용)
@@ -23,7 +23,7 @@
 - 동의 완료는 클릭 기록으로 대체하지 않는다(재클릭은 체크 해제). 연락처 확인 중복 클릭 재시도를 제한한다.
 - 결제수단: ICN 출발 Npay, ICN 도착 한국발행 카드→현대카드. 실패 시 다른 제공자로 바꾸지 않는다.
 - 일반 상한 개방+240초. 창 닫기·홈 복귀는 주문 해제 증거가 아니다.
-- 과거 운영 명령(재개 지시 때만): `dev/test_calendar.py --day`, `dev/check_day.py --day`, `dev/prepare_day.py --day`
+- 과거 운영 명령(재개 지시 때만): `dev/test_calendar.py --day`, `macro/check_day.py --day`, `macro/prepare_day.py --day`
   (`--preview`도 주문을 만들 수 있다, `--cold`는 Chrome 재시작이지 부팅 시험이 아니다).
 
 ## 3. 알려진 실측과 보류 문제

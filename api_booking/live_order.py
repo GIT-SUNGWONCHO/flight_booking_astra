@@ -966,7 +966,7 @@ def observe_unopened(page, snap, a, ledger, clock):
 def ensure_krw(page, timeout_ms=20000):
     """운임 화면 통화를 KRW 로. 'krw'(확인)·'bounced'(적용 뒤 달력으로 돌아감)·'failed'.
 
-    조작은 dev/prepare_currency.py 와 같은 실측 요소(#currencyBtn, #filter-currency 의 KRW
+    조작은 macro/prepare_currency.py 와 같은 실측 요소(#currencyBtn, #filter-currency 의 KRW
     라벨, .filter__apply)만 쓴다. 달력으로 돌아간 경우의 재검색은 capture_pass 가 한다.
     """
     def krw():

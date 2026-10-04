@@ -9,5 +9,6 @@
 | 판정 | `pipeline.py`, `availability.py`, `fare.py`, `eligibility.py`, `travellers.py`, `payment.py`, `order_flow.py` |
 | 브라우저·전송 | `transport.py`, `site_drive.py`, `state_bridge.py`, `connected_bridge.py`, `bridge_guard.py`, `handoff.py`, `resume_gate.py` |
 | 안전·증거 | `permit.py`, `order_evidence.py`, `evidence.py`, `recovery.py`, `explicit_retry.py` |
-| 연구 도구(운영 미사용) | `collect.py`, `contracts.py`, `analyze.py`, `deadline.py`(잘못된 마감 가정 포함), `open_lab.ps1`/`.sh`(9242), `award_id_probe.py`(조회 생략 조사, 주문 없음) |
-| 시험 | `test_*.py`, 일괄 실행 `run_tests.py` |
+| 시험 | `test_*.py`. 일괄 실행은 저장소 맨 위에서 `python run_tests.py live` |
+
+조사 도구(`collect.py`·`analyze.py`·`award_id_probe.py` 등)는 2026-10-04 에 [research/](../research/README.md)로 옮겼다.
