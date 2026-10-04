@@ -30,7 +30,7 @@ description: "준비·리허설·09시 결과를 보고하거나 실행 코드�
 
 ## 4. 변경 후 시험 선택
 
-[docs/testing.md §3](../../../docs/testing.md)의 변경별 시험을 적용한다. API 변경은 `api_booking/run_tests.py` 전체와
+[docs/testing.md §3](../../../docs/testing.md)의 변경별 시험을 적용한다. API 변경은 `run_tests.py live` 전체와
 `--dry` 경로 점검. Chrome을 이름으로 일괄 종료하지 않는다. 문서만 바꿨으면 링크·명령·코드/설정 대조로 검사한다.
 
 ## 5. 보고 형식

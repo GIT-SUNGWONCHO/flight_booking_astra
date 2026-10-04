@@ -71,4 +71,4 @@ Copy-Item .env.example .env                                    # 값은 사용�
 
 - `dev-browser.cmd`(9232), `dev-browser2.cmd`(9233) → `dev/astra_browsers.ps1 -Port N [-Restart]`. 전용 프로필 `.debug-profile*`만 다룬다.
 - Chrome을 프로세스 이름으로 일괄 종료하지 않는다. 종료는 `dev/close_astra_browser.py --port N` 또는 소유 프로필 PID 한정.
-- 연구용 9242(`.api-profile`, `api_booking/open_lab.*`)는 운영과 분리한다.
+- 연구용 9242(`.api-profile`, `research/open_lab.*`)는 운영과 분리한다.

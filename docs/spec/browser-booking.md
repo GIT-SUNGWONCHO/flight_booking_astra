@@ -13,7 +13,7 @@
 | `macro/prepare_day.py`·`check_day.py`·`worker_health.py`·`stage_process.py` | 08:20 준비·읽기 점검·작업자 수명 |
 | `macro/manual_booking.py`·`hybrid.py`·`departure_live.py`·`network_trace.py` | 사용자 대기·정시 발사·조회 화면 경로·네트워크 증거 |
 | `macro/autorun.py`·`daily.py`·`rehearse.py`·`ke_setup.py`·`watch_seats.py`·`preflight.py`·`drive.py` | 과거 실행기·리허설·보조. 현재 운영 명령과 섞지 않는다 |
-| `dev/*.ps1`·`*.cmd`·`*.sh`(`day.ps1`, `morning.ps1`, `browsers.ps1`, `astra_target.ps1`, `daily.cmd`, `dev-browser*.cmd/sh`) | Windows/Mac 실행 보조 |
+| `macro/day.ps1`·`morning.ps1`·`astra_target.ps1`·`daily.cmd`, `dev/browsers.ps1`, `dev-browser*.cmd/sh` | Windows/Mac 실행 보조 |
 
 ## 2. 유지할 동작 조건 (재개 시 그대로 적용)
 

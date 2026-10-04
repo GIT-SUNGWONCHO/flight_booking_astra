@@ -52,10 +52,10 @@
 | `order_evidence.py` / `evidence.py` | 허용 목록 주문 증거·오류 코드·금액 진단 |
 | `order_flow.py` / `recovery.py` / `explicit_retry.py` | 상태 전이 / 실패 응답 메모리 조사 / 사용자 승인 재시험 |
 | `payment.py` | 결제 단계 판정 모델 |
-| 연구 도구 | `collect.py`·`contracts.py`(수집), `analyze.py`, `deadline.py`(잘못된 마감 가정 포함, 판정에 쓰지 않음), `open_lab.*`(9242 연구 Chrome) |
+| 조사 도구 | 예매에 쓰지 않는다. [research/](../../research/README.md)로 옮겼다(2026-10-04) |
 
 공용 모듈은 `dev/`에 있다: `setup.py`(로그인·달력), `runtime.py`(`measure_clock`·실행 ID), `astra_browsers.ps1`,
-`session_health.py`(토큰 만료), `prepare_currency.py`, `payment_window.py`(결제 제공자 판정), `observer_chain.py`.
+`session_health.py`(토큰 만료), `payment_window.py`(결제 제공자 판정), `observer_chain.py`.
 
 ## 4. 단계별 규칙
 
@@ -153,4 +153,4 @@
 2. 예매 조회 계측기(9233, 개방 경계·`seatCount`)는 9/20부터 실전 — [계측 명세 §5](observer.md#next). 선발사 값은 2일 이상 자료로 결정.
 3. 9/19 business-error 원인 미확정(오류 코드 수집은 이후 추가).
 4. 현대카드 단계는 리허설 1회 통과. 09시 신규 개방에서의 인계·결제창은 미검증.
-5. 연구 도구(`collect`·`analyze`·`deadline`)는 운영 체인과 분리 유지. 폴더 재배치는 9/25 이후([README §5](../../README.md#layout)).
+5. 조사 도구(`collect`·`analyze`·`deadline`)는 [research/](../../research/README.md)로 분리했다(2026-10-04).
