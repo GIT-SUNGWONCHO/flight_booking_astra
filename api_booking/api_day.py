@@ -37,6 +37,7 @@ sys.path.insert(0, str(ROOT / 'dev'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from runtime import KST  # noqa: E402
 import astra_config  # noqa: E402
+import capture_date  # noqa: E402
 
 PY = str(ROOT / ('.venv/Scripts/python.exe' if os.name == 'nt' else '.venv/bin/python'))
 # 예매 자리. 9232·9243 = 계정 1(1순위·대체), 9242·9244 = 계정 2. 어느 계정이 어떻게 로그인하는지는
@@ -117,6 +118,32 @@ def order_not_sent(state_dir):
         if state not in PRE_ORDER_STATES:
             return False
     return True
+
+
+def pick_capture(a, report):
+    """--capture-iso auto: 지금 떠 있는 달력을 읽어 캡처 날짜를 고른다. 못 고르면 None.
+
+    임시 날짜와 다른 날을 골랐으면 그 날짜로 달력을 다시 준비한다(날짜가 이미 선택된 채로 도착해야
+    준비 통과가 안정적이다 - 달력 칸은 토글이고 첫 클릭이 안 잡히는 일이 잦다).
+    """
+    try:
+        cells = capture_date.read_cells(a.port)
+    except Exception as exc:  # noqa: BLE001
+        log(f'달력을 읽지 못했다({type(exc).__name__}) - 캡처 날짜를 고를 수 없다')
+        return None
+    picked = capture_date.choose(cells, a.target_date, cabin=a.capture_cabin)
+    days = capture_date.parse_cells(cells, a.target_date)
+    report['captureAuto'] = {'tentative': a.capture_iso, 'picked': picked,
+                             'seen': {d: s for d, s in sorted(days.items()) if d < a.target_date}}
+    if not picked:
+        log(f'달력에 {a.target_date} 보다 앞선 {a.capture_cabin} 좌석 날짜가 없다 - 캡처 날짜를 고를 수 없다')
+        return None
+    log(f'캡처 날짜 자동 선택: {picked} ({a.capture_cabin} 있음)')
+    if picked != a.capture_iso:
+        a.capture_iso = picked
+        if not prepare(report, a):
+            return None
+    return picked
 
 
 def run_step(report, name, args, timeout=300):
@@ -204,7 +231,8 @@ def main():
     ap.add_argument('--order-gate-file', default='', help='주문 직전에 이 신호를 본다')
     ap.add_argument('--order-gate-timeout', type=float, default=None, help='신호 대기 상한(초)')
     ap.add_argument('--target-date', required=True)
-    ap.add_argument('--capture-iso', required=True, help='이미 열린 캡처 날짜 YYYY-MM-DD(목표와 다른 날)')
+    ap.add_argument('--capture-iso', required=True,
+                    help='이미 열린 캡처 날짜 YYYY-MM-DD(목표와 다른 날). auto 면 달력을 읽어 스스로 고른다')
     ap.add_argument('--origin', default='CDG')
     ap.add_argument('--destination', default='ICN')
     ap.add_argument('--flight', default='902')
@@ -229,6 +257,10 @@ def main():
     ap.add_argument('--again', action='store_true',
                     help='오늘 이미 주문을 보낸 기록이 있어도 그 기록을 보관하고 다시 실행한다(live_order --again)')
     a = ap.parse_args()
+    capture_auto = a.capture_iso == 'auto'
+    if not capture_auto and not re.fullmatch(r'\d{4}-\d{2}-\d{2}', a.capture_iso):
+        log('--capture-iso 는 YYYY-MM-DD 또는 auto')
+        return 2
     if a.capture_iso == a.target_date:
         log('캡처 날짜는 목표와 다른 이미 열린 날짜여야 한다')
         return 2
@@ -268,6 +300,10 @@ def main():
               'target': {'date': a.target_date, 'origin': a.origin,
               'destination': a.destination, 'flight': a.flight, 'family': a.family},
               'captureIso': a.capture_iso, 'startedAt': datetime.now(KST).isoformat(), 'steps': []}
+    if a.live_state_dir:
+        report['stateDir'] = str(Path(a.live_state_dir))
+    if a.order_outcome_file or a.order_gate_file:
+        report['gate'] = {'writes': a.order_outcome_file or None, 'waitsFor': a.order_gate_file or None}
     path = OUT / f'{a.mode}-{run_id}.json'
 
     def save(**extra):
@@ -309,13 +345,16 @@ def main():
             log('재준비 마감이 지났다 - 발사하지 않는다')
             save(result='reprep-cutoff')
             return 2
-        if not prepare(report, a):
+        if capture_auto:
+            a.capture_iso = capture_date.tentative(a.target_date)   # 달력을 여는 데만 쓴다
+        if not prepare(report, a) or (capture_auto and not pick_capture(a, report)):
             save()
             if attempt < a.max_attempts:
                 time.sleep(10)
                 continue
             save(result='prepare-failed')
             return 2
+        report['captureIso'] = a.capture_iso
         if a.at:
             at = today_at(a.at)
             health = today_at(a.health_at)

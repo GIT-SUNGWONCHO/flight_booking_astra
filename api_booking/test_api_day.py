@@ -133,5 +133,70 @@ class RetryLoopTests(unittest.TestCase):
         self.assertEqual((code, report['result'], self.orders), (2, 'chrome-failed', 1))
 
 
+class AutoCaptureTests(unittest.TestCase):
+    """--capture-iso auto: 임시 날짜로 달력을 열고, 읽어서 고르고, 다르면 그 날짜로 다시 연다."""
+
+    CELLS = [{'text': '13 09월 13일 (월) 일반석', 'disabled': False},
+             {'text': '15 09월 15일 (수) 일반석', 'disabled': False},
+             {'text': '18 09월 18일 (토) 좌석 없음', 'disabled': True}]
+
+    def run_chain(self, cells, codes=(0,), target='2027-09-20'):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        codes = list(codes)
+        self.setups, self.orders, self.logs = [], [], []
+
+        def fake_prepare(report, a):
+            self.setups.append(a.capture_iso)
+            return True
+
+        def fake_call(args, **kw):
+            self.orders.append(args[args.index('--capture-iso') + 1])
+            return codes.pop(0)
+        argv = ['api_day.py', '--mode', 'rehearsal', '--target-date', target, '--capture-iso', 'auto',
+                '--own-mileage', '100000']
+        with mock.patch.object(sys, 'argv', argv), \
+                mock.patch.object(api_day, 'OUT', tmp), \
+                mock.patch.object(api_day, 'keep_awake'), \
+                mock.patch.object(api_day, 'lingering_orders', return_value=[]), \
+                mock.patch.object(api_day, 'browser', return_value=True), \
+                mock.patch.object(api_day, 'prepare', fake_prepare), \
+                mock.patch.object(api_day.capture_date, 'read_cells', return_value=cells), \
+                mock.patch.object(api_day, 'log', self.logs.append), \
+                mock.patch.object(api_day.subprocess, 'call', fake_call), \
+                mock.patch.object(api_day.time, 'sleep'):
+            code = api_day.main()
+        return code, json.loads(next(tmp.glob('rehearsal-*.json')).read_text(encoding='utf-8'))
+
+    def test_picks_from_the_calendar_and_reopens_it_on_that_day(self):
+        code, report = self.run_chain(self.CELLS)
+        self.assertEqual(code, 0)
+        self.assertEqual(self.setups, ['2027-09-13', '2027-09-15'])     # 임시(한 주 전) → 고른 날
+        self.assertEqual(self.orders, ['2027-09-15'])
+        self.assertEqual(report['captureIso'], '2027-09-15')
+        self.assertEqual(report['captureAuto']['picked'], '2027-09-15')
+
+    def test_no_second_setup_when_the_tentative_day_is_the_pick(self):
+        code, _ = self.run_chain(self.CELLS[:1])
+        self.assertEqual((code, self.setups, self.orders), (0, ['2027-09-13'], ['2027-09-13']))
+
+    def test_nothing_to_pick_never_starts_the_order_program(self):
+        code, report = self.run_chain(self.CELLS[2:])
+        self.assertEqual((code, report['result'], self.orders), (2, 'prepare-failed', []))
+        self.assertEqual(len(self.setups), 3)                           # 준비 시도 3번 모두 임시 날짜로
+        self.assertTrue(any('캡처 날짜를 고를 수 없다' in x for x in self.logs))
+
+    def test_each_new_attempt_reads_the_calendar_again(self):
+        code, _ = self.run_chain(self.CELLS, codes=[live_order.EXIT_REPREPARE, 0])
+        self.assertEqual(code, 0)
+        self.assertEqual(self.setups, ['2027-09-13', '2027-09-15', '2027-09-13', '2027-09-15'])
+
+    def test_bad_capture_value_is_refused(self):
+        with mock.patch.object(sys, 'argv', ['api_day.py', '--mode', 'rehearsal', '--target-date', '2027-09-20',
+                                              '--capture-iso', 'tomorrow', '--own-mileage', '1']), \
+                mock.patch.object(api_day, 'log', lambda m: None):
+            self.assertEqual(api_day.main(), 2)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=0)

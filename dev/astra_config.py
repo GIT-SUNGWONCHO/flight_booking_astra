@@ -204,3 +204,87 @@ def credential_keys(port, cfg):
     """이 자리가 쓸 .env 이름 (아이디, 비밀번호, 탭). 값은 다루지 않는다."""
     index = account_index(port, cfg) if cfg is not None else 0
     return ENV_KEYS[index if index is not None and index < len(ENV_KEYS) else 0]
+
+
+# ---------------------------------------------------------------------------
+# 실행 계획: 설정 한 장을 api_day 실행 여러 개로 푼다
+# ---------------------------------------------------------------------------
+OPEN_DAYS_AHEAD = 360          # 출발 360일 전 09:00(KST)에 열린다(config/test_calendar.json 과 같다)
+FIRST_PORTS = (9232, 9242)
+FALLBACK_PORTS = (9243, 9244)
+
+
+def open_day(target_iso):
+    """그 출발일의 좌석이 열리는 날(YYYY-MM-DD)."""
+    from datetime import date, timedelta
+    return (date.fromisoformat(target_iso) - timedelta(days=OPEN_DAYS_AHEAD)).isoformat()
+
+
+def fire_time(open_hms, delay_ms, pre_fire_ms=0):
+    """(발사 시각 HH:MM:SS, 선발사 ms). 발사 시각은 초 단위라 나머지는 선발사로 맞춘다.
+
+    delay_ms=3500 이면 ('09:00:04', 500) - 09:00:04 보다 500ms 먼저, 곧 개방 3.5초 뒤다.
+    """
+    h, m, s = (int(x) for x in open_hms.split(':'))
+    if delay_ms <= 0:
+        return open_hms, pre_fire_ms
+    whole = -(-delay_ms // 1000)
+    total = h * 3600 + m * 60 + s + whole
+    return f'{total // 3600 % 24:02d}:{total // 60 % 60:02d}:{total % 60:02d}', whole * 1000 - delay_ms
+
+
+def plan_runs(cfg, run_day):
+    """설정을 실행 목록으로. 계정마다 1순위 하나, 대체가 있으면 하나 더.
+
+    대체 실행은 같은 계정의 1순위가 남긴 신호 파일을 주문 직전에 본다. 1순위가 좌석을 잡았으면
+    주문하지 않고, 거절됐을 때만 주문한다.
+    """
+    times, tuning, runs = cfg['times'], cfg['tuning'], []
+    for index, acc in enumerate(cfg['accounts']):
+        signal = f'dev-shots/gate/{run_day}-{acc["name"]}.json' if acc['fallback'] else ''
+        base = {'account': acc['name'], 'login': acc['login'], 'mileage': acc['mileage']}
+        runs.append({**base, 'name': f'{acc["name"]}-first', 'role': 'first', 'port': FIRST_PORTS[index],
+                     'cabin': acc['first'], 'family': CABINS[acc['first']][0],
+                     'at': times['open'], 'preFireMs': tuning['preFireMs'],
+                     'stateDir': f'dev-shots/state-{FIRST_PORTS[index]}',
+                     'writes': signal, 'waitsFor': '', 'waitSeconds': None,
+                     'observer': bool(cfg['observer']) and index == 0})
+        if acc['fallback']:
+            at, pre = fire_time(times['open'], tuning['fallbackDelayMs'])
+            runs.append({**base, 'name': f'{acc["name"]}-fallback', 'role': 'fallback',
+                         'port': FALLBACK_PORTS[index], 'cabin': acc['fallback'],
+                         'family': CABINS[acc['fallback']][0], 'at': at, 'preFireMs': pre,
+                         'stateDir': f'dev-shots/state-{FALLBACK_PORTS[index]}',
+                         'writes': '', 'waitsFor': signal, 'waitSeconds': tuning['fallbackWaitSeconds'],
+                         'observer': False})
+    return runs
+
+
+def api_day_args(run, cfg, *, again=False):
+    """그 실행의 실전(live) api_day 인자."""
+    trip, times = cfg['trip'], cfg['times']
+    args = ['--mode', 'live', '--target-date', trip['date'], '--capture-iso', trip['captureDate'],
+            '--origin', trip['origin'], '--destination', trip['destination'], '--flight', trip['flight'],
+            '--port', str(run['port']), '--family', run['family'], '--own-mileage', str(run['mileage']),
+            '--pre-fire-ms', str(run['preFireMs']), '--at', run['at'], '--health-at', times['health'],
+            '--capture-not-before', times['capture'], '--reprep-cutoff', times['lastPrepare'],
+            '--live-state-dir', run['stateDir']]
+    if run['writes']:
+        args += ['--order-outcome-file', run['writes']]
+    if run['waitsFor']:
+        args += ['--order-gate-file', run['waitsFor'], '--order-gate-timeout', str(run['waitSeconds'])]
+    if run['observer']:
+        args += ['--observer']
+    if again:
+        args += ['--again']
+    return args
+
+
+def rehearsal_args(cfg, account, target_iso, *, fire_in_min=6.0, capture='auto'):
+    """연습(리허설)용 api_day 인자. 이미 열린 날짜의 일반석으로 그 계정의 1순위 자리에서 끝까지 간다."""
+    trip = cfg['trip']
+    index = [a['name'] for a in cfg['accounts']].index(account['name'])
+    return ['--mode', 'rehearsal', '--target-date', target_iso, '--capture-iso', capture,
+            '--origin', trip['origin'], '--destination', trip['destination'], '--flight', trip['flight'],
+            '--port', str(FIRST_PORTS[index]), '--family', CABINS['economy'][0],
+            '--own-mileage', str(account['mileage']), '--fire-in-min', str(fire_in_min)]

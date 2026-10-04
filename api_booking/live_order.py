@@ -317,6 +317,7 @@ def main():
                     help='이 파일이 생길 때까지 발사 대기를 시작하지 않는다. '
                          'AGENTS: 실전 대기 시작은 사용자가 누른다')
     a = ap.parse_args()
+    a.started_at = datetime.now(KST)   # 대체 게이트가 이보다 먼저 쓰인 신호를 지난 실행의 것으로 본다
     if a.day is None:
         a.day = datetime.now(KST).strftime('%Y-%m-%d')
 
@@ -1224,8 +1225,12 @@ def write_order_outcome(a, state, response):
         log(f'주문 판정 신호 기록 실패({exc}) - 대체 실행은 주문하지 않게 된다')
 
 
-def read_order_outcome(path):
-    """신호를 읽어 'proceed' / 'seat-taken' / 대기 사유를 돌려준다."""
+def read_order_outcome(path, not_before=None):
+    """신호를 읽어 'proceed' / 'seat-taken' / 대기 사유를 돌려준다.
+
+    not_before(이 실행이 시작한 시각)보다 먼저 쓰인 신호는 지난 실행의 것이다. 아직 안 온 것으로 본다.
+    같은 날 다시 실행하면 앞선 시도의 '거절' 신호가 파일에 남아 있다 - 그것을 믿고 주문하면 안 된다.
+    """
     try:
         raw = Path(path).read_text(encoding='utf-8')
     except OSError:
@@ -1236,6 +1241,12 @@ def read_order_outcome(path):
         return 'unreadable'
     if type(rec) is not dict:
         return 'unreadable'
+    if not_before is not None:
+        when = permit.record_time(rec, not_before.tzinfo)
+        if when is None:
+            return 'ambiguous:no-time'
+        if when < not_before:
+            return 'wait'
     state = rec.get('state')
     if state == GATE_ORDER:
         return 'seat-taken'
@@ -1244,13 +1255,13 @@ def read_order_outcome(path):
     return f'ambiguous:{state}'
 
 
-def wait_order_gate(page, path, timeout, t0):
+def wait_order_gate(page, path, timeout, t0, not_before=None):
     """신호가 올 때까지 기다린다. 판정은 read_order_outcome 이 한다."""
     log(f'대체 게이트: 앞선 주문 판정을 기다린다(최대 {timeout:.1f}초) · {Path(path).name}')
     deadline = time.monotonic() + max(0.0, timeout)
     verdict = 'wait'
     while time.monotonic() < deadline:
-        verdict = read_order_outcome(path)
+        verdict = read_order_outcome(path, not_before)
         if verdict != 'wait':
             log(f'대체 게이트: 신호={verdict} (+{time.monotonic()-t0:.3f}s)')
             return verdict
@@ -1334,7 +1345,8 @@ def fire(page, snap, a, ledger, pl, retry, checkpoint=lambda: None, binding=None
         return 2
 
     if a.order_gate_file:
-        verdict = wait_order_gate(page, a.order_gate_file, a.order_gate_timeout, t0)
+        verdict = wait_order_gate(page, a.order_gate_file, a.order_gate_timeout, t0,
+                                  getattr(a, 'started_at', None))
         if verdict != 'proceed':
             log(f'대체 게이트: {verdict} - 주문하지 않는다 (+{time.monotonic()-t0:.3f}s)')
             return 0
