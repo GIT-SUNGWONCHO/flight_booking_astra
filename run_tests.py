@@ -6,7 +6,8 @@
   .venv/Scripts/python.exe run_tests.py macro           옛 브라우저 매크로   macro/test/
   .venv/Scripts/python.exe run_tests.py research        조사 도구          research/test/
   .venv/Scripts/python.exe run_tests.py -k hud -k gate  이름에 그 글자가 든 것만
-  .venv/Scripts/python.exe run_tests.py --no-browser    로컬 Chromium 을 띄우는 시험을 뺀다(빠르다)
+  .venv/Scripts/python.exe run_tests.py --no-browser    로컬 Chromium 을 띄우는 시험을 뺀다. 10초쯤 걸리지만
+                                                        test_live_order 같은 핵심 시험도 빠진다 - 확인용으로는 부족하다
 
 여러 묶음을 함께 줄 수 있다(live engine). 하나라도 실패하면 종료 코드 1.
 시험은 파일마다 따로 돌린다. 멈춘 시험은 --timeout(초) 뒤 끊고 실패로 센다.
@@ -31,6 +32,7 @@ GROUPS = {
 }
 # Git 에 넣지 않는 저장 소스가 있어야 도는 시험. 없으면 건너뛴다.
 NEEDS = {'test_site_rehydrate.py': ROOT / 'dev-shots' / 'api-source-2026-09-10'}
+TAILS = {}   # 실패한 시험의 마지막 출력. 끝에 한 번 보여 준다
 
 
 def uses_browser(path):
@@ -60,17 +62,22 @@ def run_one(path, timeout, env):
         ran = re.findall(r'Ran (\d+) tests?', out)
         return 'ok', (f'{ran[-1]}개' if ran else ''), took
     last = [l for l in out.strip().splitlines() if l.strip()]
+    TAILS[path] = last[-25:]
     return 'FAIL', (last[-1][:90] if last else f'종료 코드 {p.returncode}'), took
 
 
 def main():
     ap = argparse.ArgumentParser(description='시험 일괄 실행(실사이트 접속 없음)')
-    ap.add_argument('groups', nargs='*', choices=list(GROUPS), default=[],
-                    help='묶음: ' + ' '.join(GROUPS) + ' (없으면 전부)')
+    # choices 를 쓰면 묶음을 하나도 안 줬을 때 argparse 가 빈 목록을 거부한다. 직접 확인한다.
+    ap.add_argument('groups', nargs='*', metavar='묶음',
+                    help=' '.join(GROUPS) + ' 중에서. 없으면 전부')
     ap.add_argument('-k', action='append', default=[], metavar='글자', help='파일 이름에 이 글자가 든 것만')
-    ap.add_argument('--no-browser', action='store_true', help='로컬 Chromium 을 띄우는 시험을 뺀다')
+    ap.add_argument('--no-browser', action='store_true', help='로컬 Chromium 을 띄우는 시험을 뺀다(핵심 시험도 빠진다)')
     ap.add_argument('--timeout', type=int, default=300, help='파일 하나의 제한 시간(초)')
     a = ap.parse_args()
+    unknown = [g for g in a.groups if g not in GROUPS]
+    if unknown:
+        ap.error(f'모르는 묶음 {unknown} - {" ".join(GROUPS)} 중에서 고른다')
     env = {**os.environ, 'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8'}
     failed, counts = [], {'ok': 0, 'FAIL': 0, 'skip': 0}
     started = time.monotonic()
@@ -97,7 +104,10 @@ def main():
     total = time.monotonic() - started
     print(f'\n통과 {counts["ok"]} · 실패 {counts["FAIL"]} · 건너뜀 {counts["skip"]}  ({total:.0f}초)')
     for rel in failed:
-        print(f'  실패: {rel}')
+        print()
+        print(f'--- 실패: {rel} (마지막 출력)')
+        for line in TAILS.get(ROOT / rel, []):
+            print('    ' + line[:200])
     return 1 if failed else 0
 
 

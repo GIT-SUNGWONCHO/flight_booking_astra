@@ -51,6 +51,8 @@ T2 성공을 09시 경쟁 성공으로, T1 통과를 실사이트 동작으로 �
 ## 5. 알려진 시험 상태 (2026-10-04)
 
 - 전체 84개 파일: 통과 83 · 실패 0 · 건너뜀 1(`test_site_rehydrate`, 저장 소스 없음). 집 PC(Windows 11, 한글).
+- `macro/test/test_hybrid.py` 가 **전체 실행 3번 중 1번 실패**했다(단독 6번은 모두 통과). 그때 출력을 남기지 못해 원인은 모른다.
+  이후 실행기가 실패한 시험의 마지막 출력을 보여 주도록 고쳤다 - 다시 나오면 그 출력부터 본다.
 - 9/11 부터 이 PC 에서 실패하던 `test_booking_failures`·`test_openwait` 는 **시험 쪽 문제**였다(10/04 수정).
   픽스처 응답에 `charset` 이 없으면 한글 Windows 의 Chromium 이 EUC-KR 로 읽어 `월`·`일` 이 깨진다.
   새 픽스처는 `content_type='text/html; charset=utf-8'` 또는 `<meta charset="utf-8">` 를 붙인다.
