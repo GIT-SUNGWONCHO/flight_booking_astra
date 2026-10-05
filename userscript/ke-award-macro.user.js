@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         대한항공 마일리지 예매 보조 (KE Award Macro)
 // @namespace    local.ke.award
-// @version      1.162.0-dirty
+// @version      1.163.0
 // @description  예매 단계 녹화/재생 + 오픈시각 정시 발사 + 안내사항 모달 즉시 통과
 // @author       local
 // @match        *://*.koreanair.com/*
@@ -818,7 +818,7 @@ try {
 (function () {
   var W = window;
   try { if (typeof unsafeWindow !== 'undefined' && unsafeWindow) W = unsafeWindow; } catch (e) {}
-  var B = { version: '1.162.0-dirty', hash: 'c183c82-dirty' };
+  var B = { version: '1.163.0', hash: 'bb221e7' };
   try { W.KE_BUILD = B; } catch (e) {}
   if (W !== window) { try { window.KE_BUILD = B; } catch (e) {} }
 })();
