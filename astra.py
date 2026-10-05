@@ -341,40 +341,50 @@ def cmd_check(a):
 
     if a.online:
         say()
-        say('실제로 로그인해서 달력까지 가 본다(자리마다 2~3분). 주문·좌석 선택은 하지 않는다.')
+        say('실제로 로그인해서 달력까지 가 본다(모든 자리를 함께, 3~4분). 주문·좌석 선택은 하지 않는다.')
         sys.path.insert(0, str(ROOT / 'api_booking'))
         import capture_date
         target = trip['date']
         probe = min(date.fromisoformat(capture_date.tentative(target)), now + timedelta(days=ac.OPEN_DAYS_AHEAD - 8))
         probe_iso = probe.isoformat() if trip['captureDate'] == 'auto' else trip['captureDate']
-        for port, acc, use in used_slots(cfg):
+        def probe_slot(slot):
+            """한 자리를 끝까지 가 본다. [(문제인가, 문장)] 을 돌려준다. 자리끼리는 서로 독립이라 함께 돌린다."""
+            port, acc, use = slot
+            who = f'자리 {port}({acc["name"]} {use})'
             started, why = start_browser(port)
             if not started:
-                bad(f'자리 {port}({acc["name"]} {use}): Chrome 을 띄우지 못했다 - {why}')
-                continue
+                return [(True, f'{who}: Chrome 을 띄우지 못했다 - {why}')]
             ok, why = run_setup(port, cfg, probe_iso)
             if not ok:
-                bad(f'자리 {port}({acc["name"]} {use}): {why}' + (' → `astra login`' if '로그인' in why else ''))
-                continue
-            say(f'{OK} 자리 {port}({acc["name"]} {use}): 로그인돼 있고 달력이 열린다')
-            if use != '계측':
-                try:
-                    cells = capture_date.read_cells(port)
-                except Exception as exc:  # noqa: BLE001
-                    bad(f'자리 {port}: 달력을 읽지 못했다({type(exc).__name__})')
-                    continue
-                days = capture_date.parse_cells(cells, target)
-                if trip['captureDate'] == 'auto':
-                    picked = capture_date.choose(cells, target)
-                    if picked:
-                        say(f'           캡처 날짜로 쓸 수 있는 날: {picked} (일반석 있음). 실전 아침에 다시 고른다')
+                return [(True, f'{who}: {why}' + (' → `astra login`' if '로그인' in why else ''))]
+            out = [(False, f'{who}: 로그인돼 있고 달력이 열린다')]
+            if use == '계측':
+                return out
+            try:
+                cells = capture_date.read_cells(port)
+            except Exception as exc:  # noqa: BLE001
+                return out + [(True, f'{who}: 달력을 읽지 못했다({type(exc).__name__})')]
+            days = capture_date.parse_cells(cells, target)
+            if trip['captureDate'] == 'auto':
+                picked = capture_date.choose(cells, target)
+                out.append((False, f'    캡처 날짜로 쓸 수 있는 날: {picked} (일반석 있음). 실전 아침에 다시 고른다') if picked
+                           else (True, f'{who}: {target} 앞쪽에 일반석이 있는 열린 날짜가 달력에 없다'))
+            elif days.get(trip['captureDate']) != 'seat:일반석':
+                out.append((True, f'{who}: 캡처 날짜 {trip["captureDate"]} 에 일반석이 없다(달력 표시: '
+                                  f'{days.get(trip["captureDate"], "칸 없음")}). "auto" 로 두거나 다른 날로 바꾼다'))
+            else:
+                out.append((False, f'    캡처 날짜 {trip["captureDate"]}: 일반석 있음'))
+            return out
+
+        from concurrent.futures import ThreadPoolExecutor
+        slots = used_slots(cfg)
+        with ThreadPoolExecutor(max_workers=len(slots)) as pool:
+            for lines in pool.map(probe_slot, slots):
+                for is_bad, text in lines:
+                    if is_bad:
+                        bad(text)
                     else:
-                        bad(f'자리 {port}: {target} 앞쪽에 일반석이 있는 열린 날짜가 달력에 없다')
-                elif days.get(trip['captureDate']) != 'seat:일반석':
-                    bad(f'자리 {port}: 캡처 날짜 {trip["captureDate"]} 에 일반석이 없다(달력 표시: '
-                        f'{days.get(trip["captureDate"], "칸 없음")}). "auto" 로 두거나 다른 날로 바꾼다')
-                else:
-                    say(f'           캡처 날짜 {trip["captureDate"]}: 일반석 있음')
+                        say(f'{OK} {text}' if not text.startswith('    ') else f'       {text}')
     else:
         say(f'{NOTE} 로그인과 달력은 확인하지 않았다. 실전 전날에는 `astra check --online` 으로 실제로 가 본다')
 
@@ -693,7 +703,7 @@ def main(argv=None):
     p.add_argument('--account', default='', help='이 계정의 자리만')
     p.set_defaults(fn=cmd_login)
     p = sub.add_parser('check', help='실행 전 점검')
-    p.add_argument('--online', action='store_true', help='실제로 로그인해서 달력까지 가 본다(자리마다 2~3분)')
+    p.add_argument('--online', action='store_true', help='실제로 로그인해서 달력까지 가 본다(3~4분)')
     p.set_defaults(fn=cmd_check)
     p = sub.add_parser('plan', help='무엇이 언제 실행되는지 보여 준다')
     p.add_argument('--date', default='', help='실행하는 날 YYYY-MM-DD(기본: 좌석이 열리는 날)')

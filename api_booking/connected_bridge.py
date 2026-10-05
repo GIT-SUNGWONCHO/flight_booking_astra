@@ -25,7 +25,11 @@ ROTATING_COOKIE_VALUES=frozenset(('bm_s','bm_sv',
     'QueueITAccepted-SDFrts345E-V3_awards','_ga_YSSH8WPXW5',
     # 2026-09-20 콜드 테스트: 조회·운임 응답마다 `_abck`(Akamai) 값이 바뀌어 주문 전 점검이 session-changed 로
     # 막혔다. 대기 중 로그인 토큰 `T`·`t_sck` 도 갱신됐고 loggedInUserInfo 는 같았다. 이름은 계속 대조한다.
-    '_abck','T','t_sck'))
+    '_abck','T','t_sck',
+    # 2026-10-05 연습: 결속(T-15초)과 주문 직전 사이에 Akamai 봇 관리 쿠키 `bm_so`·`bm_lso` 값이 바뀌어
+    # 주문 전 점검이 session-changed 로 막혔다(주문은 나가지 않았다). 9/25 까지는 없던 일이다 - 사이트가 바뀌었다.
+    # 로그인 정보(loggedInUserInfo)는 같았다. 다른 회전 쿠키와 마찬가지로 이름은 계속 대조한다.
+    'bm_so','bm_lso'))
 
 # 자체 검증 오류만 기록한다. 라이브러리 예외 문자열/URL/응답 원문은 기록하지 않는다.
 SAFE_ERRORS=frozenset(('invalid-or-used-binding','changed-context','session-changed',

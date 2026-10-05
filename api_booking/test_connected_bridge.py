@@ -90,6 +90,20 @@ class ConnectedTests(Fixture,unittest.TestCase):
         self.ctx.add_cookies([{'name':n,'value':'v2','url':bridge.ORIGIN} for n in ('_abck','T','t_sck')])
         self.assertTrue(bridge.preflight(binding,target=self.quote.target,now=104.))
 
+    def test_bot_manager_session_cookies_seen_on_1005_do_not_change_identity(self):
+        # 2026-10-05 연습에서 실제로 막힌 조합: bm_so·bm_lso 가 결속 뒤 바뀌었다.
+        names=('bm_so','bm_lso')
+        for name in names:
+            self.assertIn(name,bridge.ROTATING_COOKIE_VALUES)
+        self.ctx.add_cookies([{'name':n,'value':'v1','url':bridge.ORIGIN} for n in names])
+        binding=bridge.bind(self.pg,session=self.quote.session,subject=self.request.subject,now=100.)
+        self.ctx.add_cookies([{'name':n,'value':'v2','url':bridge.ORIGIN} for n in names])
+        self.assertTrue(bridge.preflight(binding,target=self.quote.target,now=104.))
+        # 값은 빼도 이름은 본다 - 쿠키가 사라지면 여전히 막는다.
+        self.ctx.clear_cookies(name='bm_so')
+        with self.assertRaisesRegex(ValueError,'session-changed'):
+            bridge.preflight(binding,target=self.quote.target,now=105.)
+
     def test_session_diff_names_changed_cookies_without_values(self):
         self.ctx.add_cookies([{'name':'fixture-session','value':'SECRETV1','url':bridge.ORIGIN}])
         binding=bridge.bind(self.pg,session=self.quote.session,subject=self.request.subject,now=100.)
