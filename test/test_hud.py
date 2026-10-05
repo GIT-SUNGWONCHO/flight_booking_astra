@@ -57,6 +57,18 @@ def main() -> int:
                              ("ke-arm", "대기 시작")):
                 check(pg.evaluate(f"!!document.getElementById('{el}')"), f"{name} 버튼 존재")
 
+            # 평소에 안 쓰는 도구는 접혀 있다. 요소는 그대로 있고 펴면 보인다(2026-10-04).
+            basic = ("ke-target", "ke-cabin", "ke-expect", "ke-allowpay", "ke-rehearse", "ke-arm")
+            advanced = ("ke-lead", "ke-sync", "ke-startat", "ke-probe-dump", "ke-rec", "ke-play",
+                        "ke-clear", "ke-edit", "ke-export")
+            check(all(pg.is_visible("#" + e) for e in basic), "기본 컨트롤은 바로 보인다")
+            check(not any(pg.is_visible("#" + e) for e in advanced), "고급 도구는 접혀 있다")
+            pg.click("#ke-adv-toggle")
+            check(all(pg.is_visible("#" + e) for e in advanced), "펴면 고급 도구가 모두 보인다")
+            check(pg.evaluate("window.KE_HUD.state.adv") is True, "편 상태를 기억한다")
+            pg.click("#ke-adv-toggle")
+            check(not pg.is_visible("#ke-rec"), "다시 누르면 접힌다")
+
             # 걷어낸 컨트롤이 되살아나지 않았는지 (죽은 경로 재도입 방지)
             for el, name in (("ke-pick", "조회 지정"), ("ke-pick-seat", "좌석 지정"),
                              ("ke-test", "발사 테스트"), ("ke-scan", "버튼 확인"),
@@ -149,6 +161,23 @@ def main() -> int:
             check(not errors, "콘솔 에러 없음", str(errors[:2]))
         finally:
             ctx.close()
+        # API 예매·계측 창에는 매크로 엔진과 패널을 싣지 않는다. 로그인 준비가 쓰는 KE_UTIL 은 남는다.
+        # (위의 컨텍스트는 표시 없는 스크립트를 이미 걸어 두었으므로 새 브라우저에서 본다.)
+        browser = p.chromium.launch(headless=True)
+        try:
+            api = browser.new_page()
+            api.add_init_script("window.KE_API_MODE = true;" + chr(10) + js)
+            api.goto(FIXTURE)
+            api.wait_for_timeout(1500)        # 패널은 1초마다 다시 붙으려 한다 - 그 뒤에도 없어야 한다
+            got = api.evaluate("() => ({util: typeof window.KE_UTIL, rec: typeof window.KE_REC,"
+                               " hud: typeof window.KE_HUD, edit: typeof window.KE_EDIT,"
+                               " panel: !!document.getElementById('ke-hud')})")
+            check(got["util"] == "object", "API 모드: KE_UTIL 은 실린다", str(got))
+            check((got["rec"], got["hud"], got["edit"]) == ("undefined",) * 3,
+                  "API 모드: 재생 엔진·패널·편집기는 실리지 않는다", str(got))
+            check(got["panel"] is False, "API 모드: 패널이 화면에 없다")
+        finally:
+            browser.close()
 
     print()
     print("FAILED: " + ", ".join(fails) if fails else "HUD 테스트 통과")

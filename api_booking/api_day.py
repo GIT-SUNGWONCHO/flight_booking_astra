@@ -181,7 +181,7 @@ def prepare(report, a):
     live_order 의 캡처 통과가 운임 화면에서 직접 맞춘다(site_drive.capture_pass ensure_currency).
     """
     base = [PY, str(ROOT / 'dev' / 'setup.py'), a.destination, '--from', a.origin,
-            '--port', str(a.port), '--date', a.capture_iso]
+            '--port', str(a.port), '--date', a.capture_iso, '--api-mode']
     code, verdict = run_step(report, 'setup-calendar', base)
     if not (isinstance(verdict, dict) and verdict.get('ok')):
         log('달력 복귀 실패')

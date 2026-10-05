@@ -162,6 +162,12 @@ def main() -> int:
                   KE_HUD.render();
                 }}""")
 
+            def press_play() -> None:
+                # ▶ 재생 은 '고급 설정' 안에 접혀 있다(2026-10-04). 사람이 하듯 펴고 누른다.
+                if not pg.is_visible("#ke-play"):
+                    pg.click("#ke-adv-toggle")
+                pg.click("#ke-play")
+
             def why() -> str:
                 return pg.evaluate("document.getElementById('ke-skipcal-why')?.textContent || ''")
 
@@ -216,7 +222,7 @@ def main() -> int:
             land(DEP + "?depDate=20270821", fresh_loads=True)
             setup("08-21")
             pg.evaluate("() => { KE_REC.state.stepTimeoutMs = 3000; KE_REC.save(); }")
-            pg.click("#ke-play")
+            press_play()
             pg.wait_for_function("() => (window.__clicks||[]).includes('next')", timeout=20000)
             clicked = pg.evaluate("window.__clicks || []")
             check(clicked[:2] == ["seat", "next"],
@@ -229,7 +235,7 @@ def main() -> int:
             land(CAL)
             pg.evaluate("() => { KE_HUD.state.startAt = 'departure'; KE_HUD.save();"
                         " KE_REC.state.idx = 0; KE_REC.save(); }")
-            pg.click("#ke-play")
+            press_play()
             pg.wait_for_timeout(600)
             check(pg.evaluate("KE_REC.state.playing") is False,
                   "조회 화면이 아니면 ▶ 재생 이 헛돌지 않는다")
@@ -399,7 +405,7 @@ def main() -> int:
                 land(DEP + "?depDate=20270818&openTo=21", fresh_loads=True)
                 setup("08-21")
                 if how == "play":
-                    pg.click("#ke-play")
+                    press_play()
                 elif how == "rehearse":
                     pg.evaluate("() => KE_HUD.rehearse(1)")
                 else:

@@ -11,6 +11,10 @@
   'use strict';
   var W = window;
   try { if (typeof unsafeWindow !== 'undefined' && unsafeWindow) W = unsafeWindow; } catch (e) {}
+  /* API 예매(api_booking)는 화면을 누르지 않는다. 로그인·달력 준비가 KE_UTIL 만 빌려 쓴다.
+   * 그 창에 이 모듈이 실리면 쓰지도 않는 패널이 뜨고, 남아 있던 무장·재생 상태가 정각에 화면을
+   * 누를 수 있다. dev/setup.py --api-mode 가 이 표시를 세운다. */
+  if (W.KE_API_MODE || window.KE_API_MODE) return;
   if (W.KE_EDIT || window.KE_EDIT) return;
 
   var U = W.KE_UTIL || window.KE_UTIL;

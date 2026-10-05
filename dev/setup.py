@@ -259,6 +259,10 @@ def main() -> int:
         i = args.index("--tab")
         tab = int(args[i + 1])
         del args[i:i + 2]
+    # API 예매와 계측은 화면을 누르지 않는다. 매크로 패널·재생 엔진을 싣지 않고 KE_UTIL 만 쓴다.
+    api_mode = "--api-mode" in args
+    if api_mode:
+        args.remove("--api-mode")
     want_date = ""
     if "--date" in args:
         i = args.index("--date")
@@ -323,7 +327,7 @@ def main() -> int:
         ctx = b.contexts[0]
         from browser_identity import mark_context
         mark_context(ctx, int(cdp.rsplit(':',1)[1]))
-        js = USER.read_text(encoding="utf-8")
+        js = ("window.KE_API_MODE = true;\n" if api_mode else "") + USER.read_text(encoding="utf-8")
         ctx.add_init_script("if (location.hostname === 'www.koreanair.com') {\n" + js + "\n}")
         pages = [p for p in ctx.pages if "koreanair" in p.url]
         while len(pages) <= tab:            # 원하는 번째 탭이 없으면 만든다

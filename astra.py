@@ -117,7 +117,7 @@ def run_setup(port, cfg, when):
     """로그인하고 달력까지 간다(dev/setup.py). (성공 여부, 실패 이유)."""
     trip = cfg['trip']
     cmd = [PY, str(ROOT / 'dev' / 'setup.py'), trip['destination'], '--from', trip['origin'],
-           '--port', str(port), '--date', when]
+           '--port', str(port), '--date', when, '--api-mode']
     try:
         p = subprocess.run(cmd, cwd=ROOT, env=SUBENV, capture_output=True, text=True, encoding='utf-8',
                            errors='replace', timeout=420)

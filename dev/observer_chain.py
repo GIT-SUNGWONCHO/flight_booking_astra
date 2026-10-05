@@ -57,7 +57,7 @@ def main():
     ready = False
     for attempt in range(2):
         if step(f'setup-9233#{attempt + 1}', [PY, str(ROOT / 'dev' / 'setup.py'), a.destination,
-                '--from', a.origin, '--port', '9233', '--date', a.target], 300) == 0:
+                '--from', a.origin, '--port', '9233', '--date', a.target, '--api-mode'], 300) == 0:
             ready = True
             break
         time.sleep(10)

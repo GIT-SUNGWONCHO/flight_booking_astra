@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         대한항공 마일리지 예매 보조 (KE Award Macro)
 // @namespace    local.ke.award
-// @version      1.156.0
+// @version      1.162.0-dirty
 // @description  예매 단계 녹화/재생 + 오픈시각 정시 발사 + 안내사항 모달 즉시 통과
 // @author       local
 // @match        *://*.koreanair.com/*
@@ -818,7 +818,7 @@ try {
 (function () {
   var W = window;
   try { if (typeof unsafeWindow !== 'undefined' && unsafeWindow) W = unsafeWindow; } catch (e) {}
-  var B = { version: '1.156.0', hash: '3295bab' };
+  var B = { version: '1.162.0-dirty', hash: 'c183c82-dirty' };
   try { W.KE_BUILD = B; } catch (e) {}
   if (W !== window) { try { window.KE_BUILD = B; } catch (e) {} }
 })();
@@ -1345,6 +1345,10 @@ try {
   'use strict';
   var W = window;
   try { if (typeof unsafeWindow !== 'undefined' && unsafeWindow) W = unsafeWindow; } catch (e) {}
+  /* API 예매(api_booking)는 화면을 누르지 않는다. 로그인·달력 준비가 KE_UTIL 만 빌려 쓴다.
+   * 그 창에 이 모듈이 실리면 쓰지도 않는 패널이 뜨고, 남아 있던 무장·재생 상태가 정각에 화면을
+   * 누를 수 있다. dev/setup.py --api-mode 가 이 표시를 세운다. */
+  if (W.KE_API_MODE || window.KE_API_MODE) return;
   if (W.KE_REC || window.KE_REC) return;
 
   var U = W.KE_UTIL || window.KE_UTIL;
@@ -2781,6 +2785,10 @@ try {
   'use strict';
   var W = window;
   try { if (typeof unsafeWindow !== 'undefined' && unsafeWindow) W = unsafeWindow; } catch (e) {}
+  /* API 예매(api_booking)는 화면을 누르지 않는다. 로그인·달력 준비가 KE_UTIL 만 빌려 쓴다.
+   * 그 창에 이 모듈이 실리면 쓰지도 않는 패널이 뜨고, 남아 있던 무장·재생 상태가 정각에 화면을
+   * 누를 수 있다. dev/setup.py --api-mode 가 이 표시를 세운다. */
+  if (W.KE_API_MODE || window.KE_API_MODE) return;
   if (W.KE_EDIT || window.KE_EDIT) return;
 
   var U = W.KE_UTIL || window.KE_UTIL;
@@ -2964,6 +2972,10 @@ try {
     if (W !== window) { try { window[k] = v; } catch (e) {} }
   }
 
+  /* API 예매(api_booking)는 화면을 누르지 않는다. 로그인·달력 준비가 KE_UTIL 만 빌려 쓴다.
+   * 그 창에 이 모듈이 실리면 쓰지도 않는 패널이 뜨고, 남아 있던 무장·재생 상태가 정각에 화면을
+   * 누를 수 있다. dev/setup.py --api-mode 가 이 표시를 세운다. */
+  if (W.KE_API_MODE || window.KE_API_MODE) return;
   if (W.KE_HUD || window.KE_HUD) return;
 
   var U0 = W.KE_UTIL || window.KE_UTIL;
@@ -2994,6 +3006,7 @@ try {
     leadMs: 2500,
     pos: null,            // 패널 위치 {left, top}. 사이트 UI 를 가리면 옮길 수 있게
                           // 드래그해서 옮긴 자리를 기억한다
+    adv: false,           // 고급 설정을 펴 두었는가
     armed: false
   };
   try { Object.assign(S, JSON.parse(localStorage.getItem(LS) || '{}')); } catch (e) {}
@@ -3646,10 +3659,6 @@ try {
       '<div id="ke-clock">--</div><div id="ke-cd">--</div>' +
       '<label><b>발사 시각</b> - 매크로가 움직일 시각 (매일 09:00)</label>' +
       '<input id="ke-target" placeholder="09:00">' +
-      '<label>선발사(ms) <span style="color:#999">- 달력 기본 2500 · 09시 기준 08:59:57.500</span></label>' +
-      '<input id="ke-lead" type="number">' +
-      '<button id="ke-sync" style="background:#666;width:100%">시각 동기</button>' +
-      '<hr style="border:0;border-top:1px solid #ddd;margin:8px 0">' +
       '<label>좌석 등급</label>' +
       '<select id="ke-cabin" style="width:100%;box-sizing:border-box;padding:3px 5px;' +
       'border:1px solid #bbb;border-radius:3px;font:inherit">' +
@@ -3663,14 +3672,26 @@ try {
       '<label style="display:flex;align-items:center;gap:5px;margin-top:6px;color:#c00">' +
       '<input type="checkbox" id="ke-allowpay" style="width:auto">' +
       '결제하기까지 자동 (결제창 열림)</label>' +
+      '<div id="ke-skipcal-why" style="margin:2px 0 0 2px"></div>' +
+      '<div id="ke-width" style="color:#c00;margin:2px 0 0 2px"></div>' +
+      '<div id="ke-throttle" style="margin:2px 0 0 2px"></div>' +
+      '<hr style="border:0;border-top:1px solid #ddd;margin:8px 0">' +
+      '<button id="ke-rehearse" style="background:#c80;width:100%">연습 (10초 뒤 발사)</button>' +
+      '<button id="ke-arm" style="background:#2a7;width:100%">▶ 대기 시작</button>' +
+      '<div id="ke-status"></div><div id="ke-toast"></div>' +
+      /* 아래는 평소에 건드릴 일이 없는 것들이다. 사이트 화면이 바뀌어 단계를 다시 녹화하거나,
+       * 시각·경로를 조정할 때만 편다(2026-10-04 정리). 요소는 그대로 있고 접혀 있을 뿐이다. */
+      '<div id="ke-adv-toggle" style="margin-top:8px;font-size:11px;color:#0b4da2;cursor:pointer;' +
+      'user-select:none">고급 설정</div>' +
+      '<div id="ke-adv" style="display:none">' +
+      '<label>선발사(ms) <span style="color:#999">- 달력 기본 2500 · 09시 기준 08:59:57.500</span></label>' +
+      '<input id="ke-lead" type="number">' +
+      '<button id="ke-sync" style="background:#666;width:100%">시각 동기</button>' +
       '<label><b>시작 화면</b> - 발사할 때 이 화면에 서 있어야 합니다</label>' +
       '<select id="ke-startat">' +
       '<option value="calendar">달력 (기본, 검증됨) - 새로 열린 날짜를 찾아서 조회</option>' +
       '<option value="departure">조회 화면 (실험 중) - 달력 한 장을 건너뜀</option>' +
       '</select>' +
-      '<div id="ke-skipcal-why" style="margin:2px 0 0 2px"></div>' +
-      '<div id="ke-width" style="color:#c00;margin:2px 0 0 2px"></div>' +
-      '<div id="ke-throttle" style="margin:2px 0 0 2px"></div>' +
       '<div style="display:flex;align-items:center;gap:6px;margin-top:4px">' +
       '<span id="ke-probe" style="color:#888;flex:1"></span>' +
       '<button id="ke-probe-dump" style="padding:2px 6px;font-size:11px">조회 응답</button></div>' +
@@ -3683,12 +3704,18 @@ try {
       '<button id="ke-edit" style="background:#06c;width:100%">단계 편집</button>' +
       '<button id="ke-export" style="background:#555;width:100%">내보내기 (steps.json 용)</button>' +
       '<div id="ke-rec-msg" style="font-size:11px;color:#606"></div>' +
-      '<hr style="border:0;border-top:1px solid #ddd;margin:8px 0">' +
-      '<button id="ke-rehearse" style="background:#c80;width:100%">연습 (10초 뒤 발사)</button>' +
-      '<button id="ke-arm" style="background:#2a7;width:100%">▶ 대기 시작</button>' +
-      '<div id="ke-status"></div><div id="ke-toast"></div>' +
-      '<div style="font-size:10px;color:#888;margin-top:4px">제목을 끌어 옮길 수 있음 · Alt+P 로 셀렉터 집기</div>' +
+      '<div style="font-size:10px;color:#888;margin-top:4px">Alt+P 로 셀렉터 집기</div>' +
+      '</div>' +
+      '<div style="font-size:10px;color:#888;margin-top:4px">제목을 끌어 옮길 수 있음</div>' +
       '</div>';
+    var advBox = root.querySelector('#ke-adv'), advToggle = root.querySelector('#ke-adv-toggle');
+    var showAdv = function () {
+      advBox.style.display = S.adv ? 'block' : 'none';
+      advToggle.textContent = S.adv ? '▾ 고급 설정 접기'
+                                    : '▸ 고급 설정 펴기 (선발사 · 시각 동기 · 녹화 · 단계 편집)';
+    };
+    advToggle.addEventListener('click', function () { S.adv = !S.adv; save(); showAdv(); });
+    showAdv();
     if (S.pos) {
       root.style.left = S.pos.left + 'px';
       root.style.top = S.pos.top + 'px';
