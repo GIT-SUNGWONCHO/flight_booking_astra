@@ -1,3 +1,5 @@
 # PC 간 이동 시 CRLF/LF 차이로 diff 가 통째로 뒤집히는 걸 막는다
 * text=auto eol=lf
 *.ps1 text eol=crlf
+# cmd.exe 는 LF 만 있는 묶음(괄호 블록·라벨)을 잘못 읽는다
+*.cmd text eol=crlf

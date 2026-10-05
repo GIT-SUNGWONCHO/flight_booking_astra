@@ -102,6 +102,10 @@ def main():
                 failed.append(rel)
             print(f'  {status:<4} {rel:<46} {took:6.1f}s  {detail}', flush=True)
     total = time.monotonic() - started
+    if not sum(counts.values()):
+        # 아무것도 돌지 않았는데 '실패 0'이라고 하면 통과로 읽힌다(실제로 두 번 그렇게 읽었다).
+        print('고른 조건에 맞는 시험이 하나도 없다. -k 는 고른 묶음 안에서만 찾는다.')
+        return 2
     print(f'\n통과 {counts["ok"]} · 실패 {counts["FAIL"]} · 건너뜀 {counts["skip"]}  ({total:.0f}초)')
     for rel in failed:
         print()

@@ -10,7 +10,8 @@ param(
   [string]$At = '',
   [string]$Date = '',
   [string]$ArgsLine = '',
-  [switch]$Remove
+  [switch]$Remove,
+  [switch]$Now
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -20,10 +21,12 @@ if ($Remove) {
   Write-Output "removed $taskName"
   return
 }
-if (-not $At -or -not $ArgsLine) { throw '-At HH:mm and -ArgsLine are required' }
+if (-not $ArgsLine) { throw '-ArgsLine is required' }
+if (-not $Now -and -not $At) { throw '-At HH:mm is required (or -Now)' }
 # -Date yyyy-MM-dd 를 주면 그날, 없으면 오늘 -At 시각.
-$when = if ($Date) { [datetime]::ParseExact("$Date $At", 'yyyy-MM-dd HH:mm', $null) } else { Get-Date $At }
-if ($when -le (Get-Date).AddMinutes(1)) { throw "start time $Date $At is not in the future" }
+# -Now starts the same console wrapper immediately instead of registering a task (astra run).
+$when = if ($Now) { Get-Date } elseif ($Date) { [datetime]::ParseExact("$Date $At", 'yyyy-MM-dd HH:mm', $null) } else { Get-Date $At }
+if (-not $Now -and $when -le (Get-Date).AddMinutes(1)) { throw "start time $Date $At is not in the future" }
 if ($ArgsLine -match '[&|<>^"]') { throw 'ArgsLine must not contain shell metacharacters' }
 
 $outDir = Join-Path $root 'dev-shots\api-day'
@@ -46,6 +49,12 @@ $lines = @(
 )
 [IO.File]::WriteAllLines($wrapper, $lines, (New-Object Text.UTF8Encoding($false)))
 
+if ($Now) {
+  Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', "`"$wrapper`"" -WorkingDirectory $root | Out-Null
+  Write-Output "started $taskName"
+  Write-Output "log $log"
+  return
+}
 $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$wrapper`"" -WorkingDirectory $root
 $trigger = New-ScheduledTaskTrigger -Once -At $when
 # 배터리 조건 해제, 절전 해제 깨우기, 놓치면 실행하지 않음(StartWhenAvailable 기본 false), 중복 실행 금지.

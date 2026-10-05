@@ -100,7 +100,7 @@ def cmd_probe(args) -> int:
 
 def cmd_run(args) -> int:
     if not Path(args.config).exists():
-        print(f"  {args.config} 가 없습니다. config.example.yaml 을 복사해 채우세요.")
+        print(f"  {args.config} 가 없습니다. ke_award/config.example.yaml 을 복사해 채우세요.")
         return 1
     r, cfg = _runner(args)
     r.launch()

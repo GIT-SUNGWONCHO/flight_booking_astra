@@ -73,7 +73,7 @@ def ensure_browser() -> bool:
                     subprocess.Popen(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ROOT / "dev/astra_browsers.ps1"), "-Port", "9232"],
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 else:
-                    subprocess.Popen(["bash", str(ROOT / "dev-browser.sh")],
+                    subprocess.Popen(["bash", str(ROOT / "dev" / "astra_browsers.sh"), "-Port", "9232"],
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                      start_new_session=True)
             except Exception as e:

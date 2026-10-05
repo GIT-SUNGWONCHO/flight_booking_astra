@@ -1,4 +1,6 @@
 config.yaml
+# 내 노선·계정 이름·마일리지가 든 실행 설정. 본보기는 config/run.example.json
+config/run.json
 
 # 계정 비밀번호. 이 저장소는 GitHub 로 푸시된다 - 절대 커밋하지 않는다.
 # 형식만 .env.example 에 두고, 실제 값은 .env 에만 둔다.

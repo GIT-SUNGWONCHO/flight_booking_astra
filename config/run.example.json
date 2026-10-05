@@ -1,0 +1,45 @@
+{
+  "_읽어보기": "이 파일을 config/run.json 으로 복사해(astra setup 이 해 준다) 값을 내 것으로 바꾼다. '_' 로 시작하는 줄은 설명이다. 지워도 되고 그대로 둬도 된다. 항목별 설명은 docs/guide/config.md",
+  "trip": {
+    "_설명": "잡으려는 편. flight 는 편명의 숫자만 적는다(KE932 → \"932\"). date 는 출발일. captureDate 는 \"auto\" 로 두면 프로그램이 달력을 보고 고른다",
+    "origin": "FCO",
+    "destination": "ICN",
+    "flight": "932",
+    "date": "2027-09-20",
+    "captureDate": "auto"
+  },
+  "accounts": [
+    {
+      "_설명": "첫째 계정. login 은 \"skypass\"(대한항공 아이디·비밀번호 - .env 의 KE_SKYPASS_ID·KE_SKYPASS_PW) 또는 \"naver\"(네이버 연동 - astra login 때 창에서 직접 로그인). mileage 는 이 계정의 지금 마일리지 잔액. first 는 먼저 노릴 등급(\"prestige\"·\"economy\"). fallback 은 그게 거절됐을 때 잡을 등급(필요 없으면 null)",
+      "name": "wife",
+      "login": "skypass",
+      "mileage": 100000,
+      "first": "prestige",
+      "fallback": "economy"
+    },
+    {
+      "_설명": "둘째 계정. 계정이 하나면 이 { } 묶음을 통째로 지운다(앞의 쉼표도). 둘째 계정이 스카이패스 로그인이면 .env 의 KE_SKYPASS_ID_2·KE_SKYPASS_PW_2 를 쓴다",
+      "name": "me",
+      "login": "naver",
+      "mileage": 65000,
+      "first": "prestige",
+      "fallback": "economy"
+    }
+  ],
+  "_observer 설명": "계측에 쓸 계정의 name. 계측은 좌석이 몇 석이었고 언제 줄었는지 기록만 한다(예매와 무관). 필요 없으면 null",
+  "observer": "me",
+  "times": {
+    "_설명": "한국 시각. open 은 좌석이 열리는 시각(대한항공 마일리지 좌석은 09:00:00). 나머지는 그날의 준비 시간표다. 바꿀 일이 거의 없다 - 2026-09-25 에 쓴 값이다",
+    "open": "09:00:00",
+    "start": "08:20",
+    "capture": "08:38:00",
+    "health": "08:50:00",
+    "lastPrepare": "08:52:00"
+  },
+  "tuning": {
+    "_설명": "preFireMs: 개방 몇 ms 전에 조회를 보낼지(800 이면 08:59:59.200). fallbackDelayMs: 대체 실행이 개방 몇 ms 뒤에 조회를 보낼지. fallbackWaitSeconds: 대체 실행이 1순위의 결과를 기다리는 최대 초. 2026-09-25 에 쓴 값이다",
+    "preFireMs": 800,
+    "fallbackDelayMs": 3500,
+    "fallbackWaitSeconds": 5
+  }
+}

@@ -1,6 +1,6 @@
 """개발용: 원격 디버깅으로 띄운 Chrome 에 붙어서 유저스크립트를 주입하고 조작한다.
 
-전제:  ./dev-browser.sh 로 Chrome 이 떠 있고, 그 창에서 한 번 로그인해둔 상태.
+전제:  dev/astra_browsers.ps1(.sh) -Port 9232 로 Chrome 이 떠 있고, 그 창에서 한 번 로그인해둔 상태.
 사용:  .venv/bin/python macro/drive.py <명령>
   state              현재 URL / 재생 상태 / 단계 진행도
   shot [파일명]      스크린샷
