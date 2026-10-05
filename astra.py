@@ -232,6 +232,9 @@ def describe_plan(cfg, run_day):
              f'시간표        {times["start"]} 준비 시작 → {times["capture"]} 연습 통과 → {times["health"]} 로그인 점검'
              f' → {times["open"]} 발사',
              f'캡처 날짜     {"자동(달력에서 일반석 있는 가장 가까운 앞 날짜)" if trip["captureDate"] == "auto" else trip["captureDate"]}',
+             '결제           ' + ('결제수단 선택 앞에서 멈춘다 - 사람이 고른다(manual)' if cfg['payment'] == 'manual'
+                                  else ('현대카드' if trip['destination'] == 'ICN' else '네이버페이' if trip['origin'] == 'ICN'
+                                        else '정해진 결제수단 없음 - "payment": "manual" 로 바꿔야 한다') + ' 결제창까지 연다(auto)'),
              '']
     for run in runs:
         when = run['at'] if run['role'] == 'first' else f'개방 {cfg["tuning"]["fallbackDelayMs"] / 1000:g}초 뒤'
@@ -307,6 +310,12 @@ def cmd_check(a):
         say(f'{NOTE} 계정 {acc["name"]}: 마일리지 {acc["mileage"]:,} 로 적혀 있다. 대한항공 앱의 잔액과 같은지 직접 확인한다'
             ' (필요 마일리지보다 적으면 주문하지 않는다)')
 
+    if cfg['payment'] == 'manual':
+        say(f'{NOTE} 결제: 좌석을 잡으면 동의·마일리지까지 하고 멈춘다. 결제수단은 직접 고른다(manual)')
+    else:
+        method = '현대카드' if trip['destination'] == 'ICN' else '네이버페이'
+        say(f'{NOTE} 결제: 좌석을 잡으면 **{method}** 결제창을 연다(auto). {method} 를 쓰지 않으면 '
+            'config 의 "payment" 를 "manual" 로 바꾼다')
     chrome = chrome_path()
     if chrome:
         say(f'{OK} Chrome 이 있다')
@@ -636,6 +645,8 @@ def run_outcome(run, day, report, intent, signal):
     if state == 'ordered':
         if intent.get('paymentWindowReached'):
             return '✔', '좌석을 잡았다. 결제창이 열려 있다 - 직접 결제한다'
+        if intent.get('handoff') == 'user-payment-method':
+            return '✔', '좌석을 잡았다. 대한항공 결제 화면이 열려 있다 - 결제수단을 고르고 결제한다'
         return '✔', '좌석을 잡았다. 결제창은 열지 못했다 - 대한항공 누리집·앱의 예약 조회에서 결제한다'
     if state == 'unknown' and intent.get('why') == 'business-error':
         return '✘', '주문이 거절됐다. 좌석이 먼저 팔렸다(콘솔 창이 입력을 기다리면 exit 를 치거나 닫는다)'

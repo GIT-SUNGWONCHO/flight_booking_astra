@@ -636,15 +636,37 @@ class SendSafetyTests(FlowHarness):
 class ContinuePaymentTests(FlowHarness):
     """D5 연결: 주문 뒤 후반 결과가 완료일 때만 exit 0. 어느 경우도 재주문하지 않는다."""
 
-    def run_with(self, outcome):
+    def run_with(self, outcome, *extra):
         seen = {}
 
         def fake_pass(page, **kw):
             seen.update(kw)
             return outcome
         with mock.patch.object(live_order.site_drive, 'payment_pass', fake_pass):
-            result = self.run_main('--continue-payment')
+            result = self.run_main('--continue-payment', *extra)
         return result, seen
+
+    def test_manual_payment_hands_over_before_the_method_and_is_not_a_failure(self):
+        (code, _, calls, _), seen = self.run_with(
+            {'completed': False, 'stage': 'user-payment-method', 'handedToUser': True,
+             'order': 'same-order-reference', 'counts': {}}, '--payment', 'manual')
+        self.assertEqual((code, seen['method']), (0, 'manual'))
+        rec = self.intent()
+        self.assertEqual((rec['state'], rec['handoff'], rec['paymentWindowReached']),
+                         ('ordered', 'user-payment-method', False))
+        self.assertEqual(calls.count('send:inputTravellers@calendar-fare-bonus'), 1)
+        self.assertTrue(any('결제수단을 고르고' in x for x in self.logs))
+
+    def test_default_payment_method_is_auto(self):
+        (_, _, _, _), seen = self.run_with({'completed': True, 'stage': 'npay-checkout',
+                                            'order': 'same-order-reference', 'counts': {}})
+        self.assertEqual(seen['method'], 'auto')
+
+    def test_user_payment_method_in_auto_mode_is_still_incomplete(self):
+        # auto 인데 결제수단 앞에서 멈췄다면(카드 선택을 확인하지 못함) 이 경로에서는 완료가 아니다.
+        (code, _, _, _), _ = self.run_with({'completed': False, 'stage': 'user-payment-method',
+                                            'order': 'same-order-reference', 'counts': {}})
+        self.assertEqual(code, 2)
 
     def intent(self):
         return json.loads((self.tmp / 'order-intent-2099-01-01.json').read_text(encoding='utf-8'))

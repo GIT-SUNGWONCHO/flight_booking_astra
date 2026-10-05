@@ -216,6 +216,8 @@ def order_args(a, at, health_at, state_dir):
         args += ['--order-gate-timeout', str(a.order_gate_timeout)]
     if a.again:
         args += ['--again']
+    if a.payment != 'auto':
+        args += ['--payment', a.payment]
     return args
 
 
@@ -254,6 +256,8 @@ def main():
     ap.add_argument('--health-before-min', type=float, default=10.0, help='rehearsal: 발사 몇 분 전에 점검')
     ap.add_argument('--no-restart', action='store_true', help='live: Chrome 9232 재기동을 하지 않는다')
     ap.add_argument('--max-attempts', type=int, default=3)
+    ap.add_argument('--payment', default='auto', choices=['auto', 'manual'],
+                    help='manual 이면 동의·마일리지까지만 하고 결제수단 선택 앞에서 멈춘다(live_order --payment)')
     ap.add_argument('--again', action='store_true',
                     help='오늘 이미 주문을 보낸 기록이 있어도 그 기록을 보관하고 다시 실행한다(live_order --again)')
     a = ap.parse_args()

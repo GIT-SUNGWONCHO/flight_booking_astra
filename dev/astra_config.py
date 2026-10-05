@@ -48,6 +48,9 @@ _HM = re.compile(r'([01]\d|2[0-3]):[0-5]\d')
 DEFAULT_TIMES = {'open': '09:00:00', 'start': '08:20', 'capture': '08:38:00',
                  'health': '08:50:00', 'lastPrepare': '08:52:00'}
 DEFAULT_TUNING = {'preFireMs': 800, 'fallbackDelayMs': 3500, 'fallbackWaitSeconds': 5.0}
+# auto: 정해진 결제수단의 결제창까지 연다(한국 도착 = 현대카드, 한국 출발 = 네이버페이).
+# manual: 동의·마일리지까지만 하고 결제수단 선택 앞에서 멈춘다.
+PAYMENTS = ('auto', 'manual')
 
 
 class ConfigError(ValueError):
@@ -153,13 +156,19 @@ def validate(raw, name='run.json'):
     if not isinstance(tuning['fallbackWaitSeconds'], (int, float)) or not 0 < tuning['fallbackWaitSeconds'] <= 60:
         bad.append('tuning.fallbackWaitSeconds: 0 초과 60 이하')
 
+    payment = cfg.get('payment', 'auto')
+    if payment not in PAYMENTS:
+        bad.append('payment: "auto"(정해진 결제수단의 결제창까지) 또는 "manual"(결제수단 선택 앞에서 멈춤)')
+    elif payment == 'auto' and 'ICN' not in (trip.get('origin'), trip.get('destination')):
+        bad.append('payment: 인천(ICN)을 지나지 않는 노선은 정해진 결제수단이 없다. "manual" 로 둔다')
+
     if bad:
         raise ConfigError(f'{name} 에 고칠 곳이 {len(bad)}군데 있다:\n' + '\n'.join(f'  - {b}' for b in bad))
     return {'trip': {'origin': trip['origin'], 'destination': trip['destination'], 'flight': str(trip['flight']),
                      'date': trip['date'], 'captureDate': capture},
             'accounts': [{'name': a['name'], 'login': a['login'], 'mileage': a['mileage'],
                           'first': a['first'], 'fallback': a.get('fallback')} for a in accounts],
-            'observer': observer, 'times': times, 'tuning': tuning}
+            'observer': observer, 'payment': payment, 'times': times, 'tuning': tuning}
 
 
 def account_for(port, cfg):
@@ -277,6 +286,8 @@ def api_day_args(run, cfg, *, again=False):
         args += ['--observer']
     if again:
         args += ['--again']
+    if cfg.get('payment', 'auto') != 'auto':
+        args += ['--payment', cfg['payment']]
     return args
 
 
@@ -287,4 +298,5 @@ def rehearsal_args(cfg, account, target_iso, *, fire_in_min=6.0, capture='auto')
     return ['--mode', 'rehearsal', '--target-date', target_iso, '--capture-iso', capture,
             '--origin', trip['origin'], '--destination', trip['destination'], '--flight', trip['flight'],
             '--port', str(FIRST_PORTS[index]), '--family', CABINS['economy'][0],
-            '--own-mileage', str(account['mileage']), '--fire-in-min', str(fire_in_min)]
+            '--own-mileage', str(account['mileage']), '--fire-in-min', str(fire_in_min),
+            *(['--payment', cfg['payment']] if cfg.get('payment', 'auto') != 'auto' else [])]

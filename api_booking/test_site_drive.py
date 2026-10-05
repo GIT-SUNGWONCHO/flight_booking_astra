@@ -394,6 +394,36 @@ class PaymentPassTests(unittest.TestCase):
         self.assertEqual(self.window_calls[0]['expected'], 'npay')
         self.assertEqual(self.window_calls[0]['amount'], 325500)
 
+    def test_manual_method_stops_before_choosing_a_payment_method(self):
+        # 2026-10-05 사용자 결정: 현대카드·네이버페이를 쓰지 않는 사람은 결제수단을 직접 고른다.
+        ctx, page = self.gate()
+        out = self.run_pass(page, method='manual')
+        self.assertEqual((out['stage'], out['completed'], out.get('handedToUser')),
+                         ('user-payment-method', False, True))
+        self.assertEqual(page.agree, {'btn-resv-agree-1': 'on', 'btn-resv-agree-3': 'on'})   # 동의는 끝낸다
+        self.assertTrue(out['steps']['mileage']['verified'])                                # 마일리지도
+        self.assertNotIn('btn-payment', page.clicked)                                       # 결제하기는 누르지 않는다
+        self.assertNotIn('rad-naverpay', page.clicked)
+        self.assertNotIn('card', out['steps'])
+        self.assertEqual(self.window_calls, [])                                             # 결제창을 기다리지도 않는다
+        self.assertTrue(any('결제수단은 고르지 않았다' in x for x in self.logs))
+
+    def test_manual_method_works_on_routes_that_have_no_fixed_provider(self):
+        # auto 는 ICN 출발·도착만 다룬다. manual 은 방향을 가리지 않는다.
+        for origin, destination in (('CDG', 'FCO'), ('CDG', 'ICN'), ('ICN', 'CDG')):
+            with self.subTest(route=f'{origin}-{destination}'):
+                ctx, page = self.gate()
+                out = self.run_pass(page, origin=origin, destination=destination, method='manual')
+                self.assertEqual(out['stage'], 'user-payment-method')
+                self.assertNotIn('btn-payment', page.clicked)
+
+    def test_manual_method_still_refuses_a_screen_that_is_not_this_order(self):
+        ctx = FakeContext()
+        page = FakePage(ctx, on_gate=[_baggage('OTHERREF')])
+        out = self.run_pass(page, method='manual')
+        self.assertFalse(out['matched'])
+        self.assertEqual(page.clicked, [])
+
     def test_already_checked_agreement_is_not_clicked_off(self):
         # 9/13 08:33: 이미 동의한 게이트에서 동의를 다시 눌러 체크가 풀렸다.
         ctx, page = self.gate()

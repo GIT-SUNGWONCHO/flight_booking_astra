@@ -30,6 +30,15 @@ ROTATING_COOKIE_VALUES=frozenset(('bm_s','bm_sv',
     # 주문 전 점검이 session-changed 로 막혔다(주문은 나가지 않았다). 9/25 까지는 없던 일이다 - 사이트가 바뀌었다.
     # 로그인 정보(loggedInUserInfo)는 같았다. 다른 회전 쿠키와 마찬가지로 이름은 계속 대조한다.
     'bm_so','bm_lso'))
+# 2026-10-05 사용자 결정: Akamai 봇 관리 쿠키는 이름이 `bm_` 로 시작하는 묶음이다(bm_s·bm_sv·bm_so·bm_lso 를 봤다).
+# 사이트가 이 묶음에 새 이름을 넣을 때마다 주문 직전 점검이 주문을 거부했다(9/14, 10/05). 로그인과 무관한
+# 쿠키이므로 **이름도 값도 대조에서 뺀다** - 새로 생기거나 사라져도 세션이 바뀐 것으로 보지 않는다.
+# 로그인 여부는 그대로 본다: 나머지 쿠키의 이름·값과 loggedInUserInfo.
+BOT_MANAGER_PREFIXES=('bm_',)
+
+
+def _ignored_cookie(name):
+    return name.startswith(BOT_MANAGER_PREFIXES)
 
 # 자체 검증 오류만 기록한다. 라이브러리 예외 문자열/URL/응답 원문은 기록하지 않는다.
 SAFE_ERRORS=frozenset(('invalid-or-used-binding','changed-context','session-changed',
@@ -71,7 +80,7 @@ def session_diff(binding):
 
 
 def _session_stamp(page):
-    cookies=page.context.cookies([ORIGIN])
+    cookies=[c for c in page.context.cookies([ORIGIN]) if not _ignored_cookie(c['name'])]
     rows=sorted((c['name'],None if c['name'] in ROTATING_COOKIE_VALUES else c['value'],
                  c['domain'],c['path']) for c in cookies)
     member=page.evaluate('()=>sessionStorage.getItem("loggedInUserInfo")')

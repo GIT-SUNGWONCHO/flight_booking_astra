@@ -99,10 +99,30 @@ class ConnectedTests(Fixture,unittest.TestCase):
         binding=bridge.bind(self.pg,session=self.quote.session,subject=self.request.subject,now=100.)
         self.ctx.add_cookies([{'name':n,'value':'v2','url':bridge.ORIGIN} for n in names])
         self.assertTrue(bridge.preflight(binding,target=self.quote.target,now=104.))
-        # 값은 빼도 이름은 본다 - 쿠키가 사라지면 여전히 막는다.
-        self.ctx.clear_cookies(name='bm_so')
+
+    def test_bot_manager_family_is_left_out_of_the_session_check_entirely(self):
+        # 2026-10-05 사용자 결정: bm_ 로 시작하는 쿠키는 값이 바뀌든, 새로 생기든, 사라지든 세션 변경이 아니다.
+        self.ctx.add_cookies([{'name':n,'value':'v1','url':bridge.ORIGIN} for n in ('bm_s','bm_so','bm_lso')])
+        binding=bridge.bind(self.pg,session=self.quote.session,subject=self.request.subject,now=100.)
+        self.ctx.add_cookies([{'name':'bm_so','value':'v2','url':bridge.ORIGIN},          # 값이 바뀜
+                              {'name':'bm_not_seen_yet','value':'x','url':bridge.ORIGIN}])  # 본 적 없는 이름이 생김
+        self.ctx.clear_cookies(name='bm_s')                                               # 사라짐
+        self.assertTrue(bridge.preflight(binding,target=self.quote.target,now=104.))
+        # 묶음 밖의 쿠키는 그대로 본다. 이름이 비슷해도(ak_bmsc, xbm_s) 묶음이 아니다.
+        for name in ('ak_bmsc','xbm_s','fixture-session'):
+            with self.subTest(name):
+                fresh=bridge.bind(self.pg,session=self.quote.session,subject=self.request.subject,now=100.)
+                self.ctx.add_cookies([{'name':name,'value':'new','url':bridge.ORIGIN}])
+                with self.assertRaisesRegex(ValueError,'session-changed'):
+                    bridge.preflight(fresh,target=self.quote.target,now=104.)
+
+    def test_login_change_is_still_caught_while_bot_cookies_churn(self):
+        self.ctx.add_cookies([{'name':'bm_so','value':'v1','url':bridge.ORIGIN}])
+        binding=bridge.bind(self.pg,session=self.quote.session,subject=self.request.subject,now=100.)
+        self.ctx.add_cookies([{'name':'bm_so','value':'v2','url':bridge.ORIGIN}])
+        self.pg.evaluate('()=>sessionStorage.setItem("loggedInUserInfo", JSON.stringify({other:"member"}))')
         with self.assertRaisesRegex(ValueError,'session-changed'):
-            bridge.preflight(binding,target=self.quote.target,now=105.)
+            bridge.preflight(binding,target=self.quote.target,now=104.)
 
     def test_session_diff_names_changed_cookies_without_values(self):
         self.ctx.add_cookies([{'name':'fixture-session','value':'SECRETV1','url':bridge.ORIGIN}])
@@ -118,9 +138,11 @@ class ConnectedTests(Fixture,unittest.TestCase):
         self.assertNotIn('SECRET',json.dumps(diff))
 
     def test_other_cookie_change_and_rotating_cookie_removal_still_detected(self):
-        self.ctx.add_cookies([{'name':'bm_s','value':'v1','url':bridge.ORIGIN}])
+        # 이름 목록의 회전 쿠키(_abck·T 등)는 값만 빼고 이름은 본다. 사라지면 막는다.
+        # (bm_ 묶음은 2026-10-05 부터 통째로 뺀다 - 위 시험.)
+        self.ctx.add_cookies([{'name':'_abck','value':'v1','url':bridge.ORIGIN}])
         before=bridge._session_stamp(self.pg)
-        self.ctx.clear_cookies(name='bm_s')
+        self.ctx.clear_cookies(name='_abck')
         self.assertNotEqual(before,bridge._session_stamp(self.pg))
         before=bridge._session_stamp(self.pg)
         self.ctx.add_cookies([{'name':'fixture-session','value':'changed','url':bridge.ORIGIN}])

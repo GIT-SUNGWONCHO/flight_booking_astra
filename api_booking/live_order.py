@@ -308,6 +308,9 @@ def main():
                     help='주문 뒤 게이트 주문 참조 확인 → 동의 2개(상태 확인) → 마일리지 → Npay → 결제하기 → '
                          '새 Npay 창·금액·결제 세션 참조 판정(D5). 로컬 시험만 통과, 실사이트 미검증. '
                          '제공자 창 안에서는 누르지 않는다')
+    ap.add_argument('--payment', default='auto', choices=['auto', 'manual'],
+                    help='auto: 정해진 결제수단(ICN 도착 현대카드·ICN 출발 Npay)의 결제창까지 연다. '
+                         'manual: 동의·마일리지까지만 하고 결제수단 선택 앞에서 멈춘다(사람이 고른다)')
     ap.add_argument('--gate-only', action='store_true',
                     help='pnr 이후 결제 게이트로 옮겨 대조만 하고 멈춘다. 동의·Npay·결제하기는 사용자가 한다')
     ap.add_argument('--payment-only', default='',
@@ -1471,7 +1474,7 @@ def fire(page, snap, a, ledger, pl, retry, checkpoint=lambda: None, binding=None
                                       mileage=mileage, reference=order.reference,
                                       ordered_at=order.received, log=log,
                                       origin=a.origin, destination=a.destination,
-                                      amount=pl.quote.total_amount)
+                                      amount=pl.quote.total_amount, method=a.payment)
     ledger.add('handoff', f'payment:{outcome.get("order")}')
     ledger.add('handoff', f'stage:{outcome.get("stage")}')
     for name, n in (outcome.get('counts') or {}).items():
@@ -1480,6 +1483,10 @@ def fire(page, snap, a, ledger, pl, retry, checkpoint=lambda: None, binding=None
         f'창={outcome.get("paymentWindow")}')
     record_intent(a.day, 'ordered', segmentStatus=order.segment_status, runId=run_id,
                   handoff=outcome.get('stage'), paymentWindowReached=bool(outcome.get('completed')))
+    if outcome.get('stage') == 'user-payment-method' and a.payment == 'manual':
+        alert()
+        log('**[사용자 차례] 좌석을 잡았다. 열려 있는 대한항공 결제 화면에서 결제수단을 고르고 결제하기를 누른다.**')
+        return 0
     if not outcome.get('completed'):
         flow.advance(Event.HANDOFF_FAILED)
         log('**결제창 인계가 완료되지 않았다. 주문은 남아 있을 수 있다 - 재주문하지 않고 사용자가 확인한다.**')
@@ -1533,7 +1540,7 @@ def bridged_payment(page, a, ledger, pl, binding, fare_response, order_response,
                 reference=order.reference,ordered_at=order.received,origin=a.origin,
                 destination=a.destination,amount=pl.quote.total_amount,log=log,
                 navigate=False,existing_watch=connection.guard,
-                mileage_verifier=connected_bridge.resume_gate.ensure_mileage)
+                mileage_verifier=connected_bridge.resume_gate.ensure_mileage,method=a.payment)
             completed=result.get('completed') is True
             stage=result.get('stage','payment-failed')
         ledger.add('handoff',f'bridge:{stage}')
@@ -1549,8 +1556,12 @@ def bridged_payment(page, a, ledger, pl, binding, fare_response, order_response,
         if stage=='user-payment-method':
             # ICN 도착에서 현대카드 선택을 확인하지 못한 경우: 결제하기 전 상태로 사용자에게 넘긴다.
             alert()
-            log('**[사용자 차례] 9232 게이트 화면에서 한국발행 신용/체크카드 → 현대카드 → 결제하기. '
-                '카드사 창의 최종 승인은 사용자가 판단한다.**')
+            if a.payment == 'manual':
+                log(f'**[사용자 차례] 좌석을 잡았다. 자리 {a.port} 의 대한항공 결제 화면에서 결제수단을 고르고 '
+                    '결제하기를 누른다.**')
+            else:
+                log(f'**[사용자 차례] 자리 {a.port} 의 결제 화면에서 한국발행 신용/체크카드 → 현대카드 → 결제하기. '
+                    '카드사 창의 최종 승인은 사용자가 판단한다.**')
             return 0
         if stage=='hyundai-card-window':
             alert()

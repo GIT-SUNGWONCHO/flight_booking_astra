@@ -99,6 +99,21 @@ class ConfiguredAccountTests(unittest.TestCase):
                                              'health': '08:50:00', 'lastPrepare': '08:52:00'})
         self.assertEqual(self.cfg['tuning'], {'preFireMs': 800, 'fallbackDelayMs': 3500, 'fallbackWaitSeconds': 5.0})
 
+    def test_payment_defaults_to_auto_and_accepts_manual(self):
+        self.assertEqual(self.cfg['payment'], 'auto')
+        self.assertEqual(ac.validate(changed(payment='manual'))['payment'], 'manual')
+        with self.assertRaises(ac.ConfigError) as caught:
+            ac.validate(changed(payment='삼성카드'))
+        self.assertIn('payment', str(caught.exception))
+
+    def test_auto_payment_needs_a_route_through_incheon(self):
+        # auto 는 한국 도착 = 현대카드, 한국 출발 = 네이버페이만 안다. 그 밖의 노선은 manual 이어야 한다.
+        with self.assertRaises(ac.ConfigError) as caught:
+            ac.validate(changed(trip__destination='CDG'))
+        self.assertIn('manual', str(caught.exception))
+        self.assertEqual(ac.validate(changed(trip__destination='CDG', payment='manual'))['payment'], 'manual')
+        self.assertEqual(ac.validate(changed(trip__origin='ICN', trip__destination='CDG'))['payment'], 'auto')
+
     def test_keys_starting_with_underscore_are_notes(self):
         noted = changed()
         noted['_설명'] = '아무 말'

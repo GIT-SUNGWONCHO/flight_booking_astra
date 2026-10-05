@@ -918,7 +918,8 @@ def payment_amount_texts(page):
 def payment_pass(page, *, flight, date, reference=None, ordered_at=None, mileage=None,
                  log=print, navigate=True, clock=time.monotonic, wait_ms=9000,
                  origin='ICN', destination=None, amount=None, pace=1.0,
-                 window_timeout_ms=25000, existing_watch=None, mileage_verifier=None):
+                 window_timeout_ms=25000, existing_watch=None, mileage_verifier=None,
+                 method='auto'):
     """pnr 이후 기존 예매 절차(동의~결제하기)를 브라우저 클릭으로 이어가고 새 결제창을 판정한다(D5).
 
     **사용자 확정(2026-09-13): 동의부터는 API 가 아니라 기존 브라우저 클릭 방식.**
@@ -927,7 +928,10 @@ def payment_pass(page, *, flight, date, reference=None, ordered_at=None, mileage
     - 결제수단은 방향별 목표만 쓴다. ICN 출발 Npay, ICN 도착 현대카드(인증수단 선택 창에서 정지).
     - 완료(`completed`)는 새 제공자 창 ready + 기대 금액 표기 + NaverPay 요청 참조 일치 +
       결제하기 뒤 화면 주문 재판정 통과일 때만이다. 제공자 창 안에서는 아무것도 누르지 않는다.
+    - `method='manual'`(2026-10-05 사용자 결정): 동의·마일리지까지만 하고 **결제수단을 고르기 전에 멈춘다**
+      (`user-payment-method`). 현대카드·네이버페이를 쓰지 않는 사람을 위한 것이다. 노선 방향을 가리지 않는다.
     """
+    manual = method == 'manual'
     def w(ms):
         return max(0, int(ms * pace))
     if not navigate and existing_watch is None:
@@ -942,7 +946,7 @@ def payment_pass(page, *, flight, date, reference=None, ordered_at=None, mileage
     # ICN 도착(2026-09-20 사용자 승인): 한국발행 신용/체크카드 → 현대카드 → 결제하기 → 현대카드 인증수단
     # 선택 창 도착에서 정지. 카드 선택을 확인하지 못하면 결제하기를 누르지 않고 사용자에게 넘긴다.
     hyundai = expected == 'hyundai'
-    if expected not in ('npay', 'hyundai'):
+    if not manual and expected not in ('npay', 'hyundai'):
         log(f'  방향 {origin}-{destination} 의 결제수단은 이 단계가 다루지 않는다.')
         return {'navigated': False, 'matched': False, 'order': 'unsupported-provider',
                 'steps': {}, 'completed': False, 'stage': 'unsupported-provider'}
@@ -983,6 +987,17 @@ def payment_pass(page, *, flight, date, reference=None, ordered_at=None, mileage
         if not mileage_step['verified']:
             result['stage'] = f'mileage-{mileage_step["result"]}'
             log(f'  **마일리지 적용을 확인하지 못했다({mileage_step["result"]}). 결제하기로 가지 않는다.**')
+            return result
+        if manual:
+            again = watch.judge(reference, ordered_at)
+            result['orderBeforePayment'] = again.state
+            if not again.same_reference:
+                result['stage'] = 'order-changed-before-payment'
+                log(f'  **결제수단 직전 화면 주문 판정이 {again.state} 로 바뀌었다. 사용자 확인 필요.**')
+                return result
+            result.update(stage='user-payment-method', handedToUser=True, methodChosenBy='user')
+            log('  **동의와 마일리지 적용까지 끝냈다. 결제수단은 고르지 않았다(설정 payment=manual). '
+                '결제수단 선택과 결제하기는 사용자가 한다.**')
             return result
         if hyundai:
             card = select_hyundai_card(page, log=log, pace=pace)

@@ -22,6 +22,7 @@ import astra_config as ac  # noqa: E402
 import api_day  # noqa: E402
 
 CFG = ac.load(ac.EXAMPLE)
+_REAL_ARGS = ac.api_day_args
 RUN_DAY = '2026-09-25'
 
 
@@ -145,6 +146,19 @@ class EndToEndArgumentTests(unittest.TestCase):
         _, seen = self.order_args('wife-first', again=True)
         self.assertIn('--again', seen['order'])
 
+    def test_manual_payment_travels_from_the_config_to_the_order_program(self):
+        cfg = dict(CFG, payment='manual')
+        for run in ac.plan_runs(cfg, RUN_DAY):
+            self.assertEqual(value(ac.api_day_args(run, cfg), '--payment'), 'manual')
+        self.assertEqual(value(ac.rehearsal_args(cfg, cfg['accounts'][0], '2027-09-13'), '--payment'), 'manual')
+        with mock.patch.object(ac, 'api_day_args', lambda run, _cfg, **kw: _REAL_ARGS(run, cfg, **kw)):
+            _, seen = self.order_args('wife-first')
+        self.assertEqual(value(seen['order'], '--payment'), 'manual')
+        # 기본(auto)은 인자를 붙이지 않는다 - 9/25 의 명령과 같게.
+        self.assertNotIn('--payment', ac.api_day_args(ac.plan_runs(CFG, RUN_DAY)[0], CFG))
+        _, seen = self.order_args('wife-first')
+        self.assertNotIn('--payment', seen['order'])
+
     def test_rehearsal_arguments_are_economy_on_the_first_seat(self):
         args = ac.rehearsal_args(CFG, CFG['accounts'][1], '2027-09-13')
         self.assertEqual((value(args, '--mode'), value(args, '--port'), value(args, '--family'),
@@ -163,6 +177,10 @@ class OutcomeTests(unittest.TestCase):
 
     def test_order_record_decides_first(self):
         self.assertEqual(self.say(intent={'state': 'ordered', 'paymentWindowReached': True})[0], '✔')
+        mark, text = self.say(intent={'state': 'ordered', 'paymentWindowReached': False,
+                                      'handoff': 'user-payment-method'})
+        self.assertEqual(mark, '✔')
+        self.assertIn('결제수단을 고르고', text)
         mark, text = self.say(intent={'state': 'ordered', 'paymentWindowReached': False})
         self.assertEqual(mark, '✔')
         self.assertIn('예약 조회에서 결제', text)
