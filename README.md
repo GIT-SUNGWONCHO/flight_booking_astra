@@ -1,61 +1,91 @@
-# Astra — 대한항공 마일리지 좌석 09:00 예매
+# ASTRA — 대한항공 마일리지 좌석을 개방 시각에 잡는 프로그램
 
-09:00(KST)에 열리는 360일 뒤 마일리지 좌석을 잡는 도구 모음이다. 결제는 항상 사용자가 한다.
-작업 규칙은 [AGENTS](AGENTS.md), 지금 상태는 [NOW](NOW.md).
+대한항공 마일리지(보너스) 좌석은 **출발 360일 전 09:00(한국 시각)** 에 열리고, 인기 노선의 프레스티지는 몇 초 만에
+사라진다. 이 프로그램은 그 시각에 맞춰 **조회 → 운임 → 주문**을 2~3초 안에 보내 좌석을 잡고, 결제창을 열어 둔다.
 
-## 1. 구성 요소
+- **결제는 사람이 한다.** 프로그램은 결제창 안에서 아무것도 누르지 않는다.
+- 2026-09-25 에 이 프로그램으로 로마→인천 KE932(2027-09-20) **프레스티지 1석과 일반석 1석**을 두 계정으로 잡았다.
+- 돌리면 잡히는 도구는 아니다. 프레스티지가 한 석뿐인 날은 여섯 번 중 한 번 잡았다. 안 되면 일반석으로 돌려
+  빈손을 피하게 돼 있다. [왜 이렇게 만들었나](docs/guide/why.md)
 
-| 구성 | 상태 | 포트·계정 | 명세 |
+## 1. 쓰는 순서
+
+Windows PC, Google Chrome, Python 이 필요하다. 명령은 이 폴더에서 PowerShell 로 친다.
+
+| 순서 | 할 일 | 명령 | 설명 |
 |---|---|---|---|
-| **API 예매** | **주력**. 무인 체인(작업 스케줄러 08:20 → 09:00 발사) | 9232 `.debug-profile`, 와이프 스카이패스(.env) | [docs/spec/api-booking.md](docs/spec/api-booking.md) |
-| **계측기** | 운영. 예매와 독립(실패해도 예매 계속) | 9233 `.debug-profile2`, 본인 네이버 | [docs/spec/observer.md](docs/spec/observer.md) |
-| 브라우저(UI 매크로) 예매 | **보류·대체 수단** | 9232 | [docs/spec/browser-booking.md](docs/spec/browser-booking.md) |
-| API 연구 도구 | 연구 전용 | 9242 `.api-profile` | [api_booking/README.md](api_booking/README.md) |
+| 1 | 설치 | `.\astra.cmd setup` | [설치](docs/guide/install.md) |
+| 2 | 설정: 노선·날짜·계정·마일리지 | 메모장으로 `config\run.json`, `.env` | [설정](docs/guide/config.md) |
+| 3 | 설정 확인 | `.\astra.cmd check` | |
+| 4 | 로그인 | `.\astra.cmd login` | [로그인](docs/guide/login.md) |
+| 5 | **연습**(이미 열린 날짜로 끝까지) | `.\astra.cmd rehearse` | [연습](docs/guide/rehearse.md) |
+| 6 | 전날 저녁: 점검하고 예약 | `.\astra.cmd check --online` → `.\astra.cmd schedule` | [실전](docs/guide/real-day.md) |
+| 7 | 그날 09:00: 알림음이 나면 결제 | `.\astra.cmd status` | [실전 §4](docs/guide/real-day.md) |
 
-## 2. 문서 지도
+무엇이 언제 실행될지는 `.\astra.cmd plan`, 안 될 때는 [문제 해결](docs/guide/troubleshooting.md).
+
+## 2. 먼저 알아 둘 것
+
+- **연습을 건너뛰지 않는다.** 대한항공 사이트는 바뀐다. 2026-10-05 에 열흘 만에 돌려 보니 주문 직전 점검이 막혀 있었다
+  (고쳤다). 실전 며칠 전에 연습이 끝까지 가는지 반드시 본다.
+- **좌석은 결제해야 내 것이 된다.** 결제하지 않으면 대한항공이 푼다(10~32분을 봤다). 연습에서 생기는 예약도 그렇게 풀린다.
+- **결제수단이 정해져 있다.** 한국 도착편은 현대카드, 한국 출발편은 네이버페이 창이 열린다. 다른 수단으로 내려면
+  그 창을 닫고 직접 고른다. [실전 §5](docs/guide/real-day.md)
+- **그날 아침 PC 가 켜져 있고 Windows 에 로그인돼 있어야 한다.** [설치 §4](docs/guide/install.md)
+- **마일리지 잔액을 직접 적는다.** 프로그램이 읽어 오지 않는다. [설정 §1.2](docs/guide/config.md)
+- 자동화 접근은 대한항공 이용약관에 어긋날 수 있다. 본인·가족 계정으로 본인 여정에만 쓴다.
+
+## 3. 이 폴더를 남에게 줄 때
+
+아래는 **빼고** 준다. 내 비밀번호와 로그인된 브라우저다.
+
+- `.env`
+- `.debug-profile`, `.debug-profile2`, `.debug-profile3`, `.api-profile`, `.api-profile2`
+- `config\run.json` (내 계정 이름·마일리지), `dev-shots\` (내 예약 기록)
+
+Git 으로 받으면 이것들은 처음부터 들어 있지 않다.
+
+## 4. 문서
+
+**쓰는 사람**
+
+| 문서 | 내용 |
+|---|---|
+| [설치](docs/guide/install.md) · [설정](docs/guide/config.md) · [로그인](docs/guide/login.md) | 준비 |
+| [연습](docs/guide/rehearse.md) · [실전](docs/guide/real-day.md) · [문제 해결](docs/guide/troubleshooting.md) | 실행 |
+| [동작 원리](docs/guide/how-it-works.md) · [왜 이렇게 만들었나](docs/guide/why.md) | 무엇을 왜 하는지와 근거 |
+| [증거 견본](docs/samples/README.md) | 성공한 날의 실제 기록. 내 기록과 견줘 볼 때 |
+| [옛 브라우저 매크로](docs/guide/macro.md) | 화면을 대신 눌러 주는 예전 방식(보존) |
+
+**고치는 사람**(사람이든 AI 든)
 
 | 문서 | 한 가지 역할 |
 |---|---|
-| [AGENTS](AGENTS.md) | AI 작업 규칙·권한·금지 사항 |
-| [NOW](NOW.md) | 현재 상태 한 장: 다음 목표·남은 상태·다음 작업 |
-| [FACTS](FACTS.md) | 주제별 실측 사실과 해석 한계 |
+| [AGENTS](AGENTS.md) | 작업 규칙·권한·금지 사항 |
+| [NOW](NOW.md) | 현재 상태 한 장 |
+| [FACTS](FACTS.md) | 주제별 실측 사실과 해석 한계, 거둔 주장 |
 | [docs/spec/](docs/spec/) | 구성 요소별 동작 명세 |
-| [docs/operations.md](docs/operations.md) | 실행 절차: 새 PC 준비, 매일 실전, 리허설, 실패 정리, 장애 대응 |
-| [docs/testing.md](docs/testing.md) | 시험 단계(T1~T3)·명령·변경별 필수 시험·결과 기록 규칙 |
-| [docs/calendar.md](docs/calendar.md) | 테스트 일정(생성본. 원본 `config/test_calendar.json`) |
+| [docs/operations.md](docs/operations.md) | 낮은 수준의 실행 절차(`astra` 가 대신 불러 주는 명령들) |
+| [docs/testing.md](docs/testing.md) | 시험 단계·명령·변경별 필수 시험 |
 | [docs/results/](docs/results/) | 날짜별 실사이트 실행 결과 |
-| [docs/review/](docs/review/) | 외부 검토 대조·가설 검토. **확정 사실이 아니다**(확정분만 FACTS로 올린다) |
-| [docs/archive/](docs/archive/) | 과거 문서·증거. 실행 지시가 아니다 |
+| [docs/review/](docs/review/) | 외부 검토 대조·가설 검토. **확정 사실이 아니다** |
+| [docs/calendar.md](docs/calendar.md) | 2026-09 시험 일정(생성본. 원본 `config/test_calendar.json`) |
+| [docs/archive/](docs/archive/) | 과거 문서. 실행 지시가 아니다 |
 
-같은 내용을 두 문서의 원본으로 두지 않는다. 결과는 results → 사실은 FACTS → 동작은 spec → 상태는 NOW 순서로 반영한다.
-
-## 3. 빠른 시작
-
-```powershell
-# 일정 확인
-.\.venv\Scripts\python.exe dev\test_calendar.py --day 2026-09-20
-# 실전 상태(전송권·미해결 주문) 확인
-.\.venv\Scripts\python.exe api_booking\live_order.py --date 2027-09-15 --status
-# 로컬 시험
-.\.venv\Scripts\python.exe run_tests.py
-# 매일 실전 등록: docs/operations.md §2
-```
+같은 내용을 두 문서의 원본으로 두지 않는다. 결과는 results → 사실은 FACTS → 동작은 spec → 쓰는 법은 guide → 상태는 NOW.
 
 <a id="layout"></a>
-## 4. 폴더
+## 5. 폴더
 
-| 폴더 | 내용 |
+| 폴더·파일 | 내용 |
 |---|---|
-| `api_booking/` | **예매 프로그램.** 무인 체인 `api_day.py`, 실행기 `live_order.py`. [폴더 안내](api_booking/README.md) |
-| `dev/` | 예매 프로그램이 함께 쓰는 공용 모듈(로그인 `setup.py`, 시계 `runtime.py`, Chrome `astra_browsers.ps1`)과 계측기. [폴더 안내](dev/README.md) |
-| `ke_award/`, `userscript/`, `build.mjs` | 페이지 안에서 도는 스크립트의 원본과 빌드 결과. 로그인 준비와 옛 매크로가 함께 쓴다 |
-| `config/` | 일정 `test_calendar.json` |
-| `test/` | 페이지 스크립트·계측기·시계 시험과 픽스처 |
+| `astra.cmd` · `astra.py` | **입구.** 모든 명령 |
+| `config/` | `run.example.json`(설정 본보기), `run.json`(내 설정, Git 제외), `test_calendar.json`(2026-09 일정) |
+| `api_booking/` | 예매 프로그램 본체. [폴더 안내](api_booking/README.md) |
+| `dev/` | 예매 프로그램이 함께 쓰는 공용 모듈(로그인·시계·Chrome·설정 읽기)과 계측기. [폴더 안내](dev/README.md) |
+| `ke_award/` · `userscript/` · `build.mjs` | 페이지 안에서 도는 스크립트의 원본과 빌드 결과. 로그인 준비와 옛 매크로가 쓴다 |
 | `macro/` | 옛 브라우저 매크로 실행기(보존). [폴더 안내](macro/README.md) |
 | `research/` | 조사 도구. 예매에 쓰지 않는다. [폴더 안내](research/README.md) |
-| `docs/` | 명세·운영·시험·일정·결과·검토·[증거 견본](docs/samples/README.md)·보관 |
-| `run_tests.py` | 시험 일괄 실행. [시험 체계](docs/testing.md) |
-| `dev-shots/` | 실행 증거·상태(Git 제외) |
-
-2026-10-04 에 `dev/`·`api_booking/`에 섞여 있던 옛 매크로 실행기와 조사 도구를 `macro/`·`research/`로 갈라냈다.
-예매 프로그램과 공용 모듈은 자리를 옮기지 않았다.
+| `test/` · `run_tests.py` | 시험과 일괄 실행. [시험 체계](docs/testing.md) |
+| `docs/` | 문서 |
+| `dev-shots/` | 실행 기록·상태(Git 제외) |

@@ -1,6 +1,6 @@
 # API 예매 명세 (주력)
 
-기준: 2026-09-19. 코드: `api_booking/`. 실행 절차는 [운영](../operations.md), 시험은 [시험](../testing.md),
+기준: 2026-10-05. 코드: `api_booking/`. 쓰는 법은 [실전 안내](../guide/real-day.md), 낮은 수준의 절차는 [운영](../operations.md), 시험은 [시험](../testing.md),
 실측 근거는 [FACTS](../../FACTS.md)와 [results](../results/)를 따른다. 규칙·권한은 [AGENTS](../../AGENTS.md).
 
 ## 1. 목표와 현재 도달 범위
@@ -19,12 +19,14 @@
 ## 2. 전체 흐름
 
 ```
-작업 스케줄러 08:20 ─ api_day.py (체인, 콘솔 창)
-  ├─ observer_chain.py  (별도 프로세스, 계측 9233; 실패해도 예매 계속)
-  ├─ Chrome 9232 기동(실전은 재기동) ─ dev/astra_browsers.ps1
-  ├─ 로그인·캡처 날짜 달력 ─ dev/setup.py  (.env 와이프 스카이패스 계정)
+astra.py (입구) ─ config/run.json 을 실행 목록으로 푼다(dev/astra_config.py): 계정마다 1순위 하나, 대체가 있으면 하나 더
+작업 스케줄러 08:20 ─ 실행마다 api_day.py (체인, 콘솔 창 하나씩)
+  ├─ observer_chain.py  (별도 프로세스, 계측 9233; 실패해도 예매 계속. 첫 실행만 띄운다)
+  ├─ Chrome 기동(실전은 재기동) ─ dev/astra_browsers.ps1 -Port <자리>
+  ├─ 로그인·달력 ─ dev/setup.py --api-mode  (계정·로그인 방식은 config/run.json, 자격정보는 .env)
+  ├─ 캡처 날짜가 auto 면 달력을 읽어 고른다 ─ capture_date.py
   ├─ (08:38까지 대기)
-  └─ live_order.py
+  └─ live_order.py   ← 종료 코드 3·4(와 주문 전 예외 1)면 마감 전까지 다시 준비한다
        ├─ 시계 측정(NTP, 캐시 없이)
        ├─ 캡처 통과: 달력→날짜→검색→KRW→운임(목표 편)→다음→승객·연락처  [주문 요청 네트워크 차단]
        ├─ 달력 복귀 → 무장 점검(토큰·달력 주소·저장 상태·열린 날짜 조회 KRW/편명)
@@ -38,8 +40,9 @@
 
 | 파일 | 역할 |
 |---|---|
-| `api_day.py` | 무인 체인. 모드 `live`(기본 상태 폴더, 9232 재기동) / `rehearsal`(리허설 상태 폴더). 종료 코드 3이면 마감 전 재준비 |
-| `schedule_api_day.ps1` | 작업 스케줄러 1회 등록(로그온 세션·콘솔 창·배터리 조건 해제·깨우기·중복 금지). `-Date`, `-Remove` |
+| `api_day.py` | 무인 체인. 모드 `live`(자리별 상태 폴더, Chrome 재기동) / `rehearsal`(리허설 상태 폴더). `--capture-iso auto`. 재준비: 종료 코드 3(로그인부터), 4·주문 전 예외 1(Chrome 재기동부터) |
+| `capture_date.py` | 달력의 날짜 칸을 읽어 캡처 날짜를 고른다: 목표보다 앞선 날 중 일반석이 있는 가장 가까운 날 |
+| `schedule_api_day.ps1` | 작업 스케줄러 1회 등록(로그온 세션·콘솔 창·배터리 조건 해제·깨우기·중복 금지). `-Date`, `-Remove`, `-Now`(등록 없이 바로 띄움) |
 | `live_order.py` | 준비·대기·발사·주문·인계 실행기. 옵션은 §5 |
 | `pipeline.py` | 한 발사의 판정 문맥(A2 조회·A3 운임·A4a 필수 검증·A4b 주문 준비·A4c 응답) |
 | `availability.py` / `fare.py` | 조회 요청 구성·판정(`selected`/`not-open`/`sold-out`/…) / 운임 요청 구성·판정 |
@@ -48,12 +51,13 @@
 | `site_drive.py` | 실제 클릭 경로: 캡처 통과, 달력 복귀, 게이트·동의·마일리지·결제수단 |
 | `state_bridge.py` / `connected_bridge.py` | 검증 응답으로 sessionStorage 저장 모델 구성 / 결속·사전 점검·적용·게이트 확인 |
 | `bridge_guard.py` / `handoff.py` / `resume_gate.py` | 인계 중 재주문 차단 감시 / 게이트 주문 참조 판정 / 기존 게이트 같은 주문 재개 |
-| `permit.py` | 배타 전송권·발사 시각 검사·내구 저장 |
+| `permit.py` | 배타 전송권·12시간 지난 기록 보관·발사 시각 검사·내구 저장 |
 | `order_evidence.py` / `evidence.py` | 허용 목록 주문 증거·오류 코드·금액 진단 |
 | `order_flow.py` / `recovery.py` / `explicit_retry.py` | 상태 전이 / 실패 응답 메모리 조사 / 사용자 승인 재시험 |
 | `payment.py` | 결제 단계 판정 모델 |
 | 조사 도구 | 예매에 쓰지 않는다. [research/](../../research/README.md)로 옮겼다(2026-10-04) |
 
+입구는 저장소 맨 위의 `astra.py`(명령)이고, 설정 해석은 `dev/astra_config.py`(검증·자리 배정·실행 목록·인자)다.
 공용 모듈은 `dev/`에 있다: `setup.py`(로그인·달력), `runtime.py`(`measure_clock`·실행 ID), `astra_browsers.ps1`,
 `session_health.py`(토큰 만료), `payment_window.py`(결제 제공자 판정), `observer_chain.py`.
 
@@ -67,6 +71,13 @@
 - **운임칸**: `항공편명 KE<편> <등급> N 마일` 라벨 중 **목표 편명**만 고르고, 화면 가운데로 스크롤한 뒤 좌표 클릭한다
   (CDG→ICN은 공동운항 KE5902가 먼저 그려진다).
 - 캡처 유효시간 기본 3600초. 무장 뒤 대기 중 캡처가 만료되면 재준비.
+- **창 크기**: 통과를 시작할 때 창을 1600×1000 으로 맞춘다(`ensure_window`). 사람이 창을 줄여 두면 사이트가 다른 배치로 바뀐다.
+- **[검색]**: 글자가 '검색'인 버튼 중 머리말 밖의 가장 큰 것을 고르고, 창 밖이면 창 안으로 끌어온 뒤 누른다.
+  4초 안에 주소가 안 바뀌면 화면 상태를 한 줄 남기고 다시 한다(세 번). 정상은 0.5~0.6초다([10/5 결과](../results/2026-10-05.md)).
+- **캡처 날짜 `auto`**(`api_day`): 목표 7일 전으로 달력을 열어 날짜 칸을 읽고 고른다. 임시 날짜와 다른 날을 골랐으면
+  그 날짜로 달력을 다시 연다(날짜가 이미 선택된 채로 도착해야 한다). 재준비 때마다 다시 고른다.
+- 통과가 끝까지 못 갔거나 경로를 못 잡았고 **막지 못한 주문 요청이 없으면 종료 코드 4**(Chrome 재기동 뒤 재준비).
+  막지 못한 주문 요청을 봤으면 2(`prep-order-possible`, 재실행 금지).
 
 ### 4.2 무장·세션 점검 (`readiness_check`)
 캡처 직후(arm)와 `--health-at`(health)에 실행. 실패하면 **종료 코드 3**(주문 전, 재준비 가능).
@@ -97,12 +108,28 @@
 
 ### 4.5 주문과 전송권
 - 주문은 **실행당 1회**. 전송 직전 `order-permit.json`을 O_EXCL로 만들고 의도(`order-intent-<day>.json`)를 `sending`으로 기록한다.
-- 응답 판정이 `order-recorded`가 아니면 `unknown`으로 남기고 **재전송하지 않는다**. 전송권·`unknown`이 있으면 이후 모든 실행이 거부된다.
-- 예약번호가 없는 `unknown`은 사용자 확인 뒤 `--release-no-reference --release-reason "<사유>"`로 **보관 폴더로 옮긴다**(삭제 아님, 서버 해제 확인 아님). 예약번호가 있으면 거부한다.
+- 응답 판정이 `order-recorded`가 아니면 `unknown`으로 남기고 **재전송하지 않는다**.
+- **12시간 규칙(2026-10-04 사용자 결정).** 실행이 시작할 때:
+  - 쓰인 지 12시간(`permit.STALE_AFTER`) 넘은 의도·전송권은 `released/<시각>-auto/` 로 옮기고 진행한다(삭제 아님).
+    기준은 달력 날짜가 아니라 지난 시간이다 — 자정을 넘긴 재시작은 그대로 막힌다.
+  - 12시간 안의 전송권, 또는 `sending`·`unknown`·`ordered`·`prep-order-possible` 의도가 있으면 **주문하지 않고**
+    무슨 일이 있었는지(좌석 확보·거절·결과 미확인)를 알린 뒤 종료 코드 2.
+  - `preparing`(준비 통과 도중 죽음)·`prep-no-unblocked-order`·`resolved` 는 막지 않는다.
+  - `--again`: 12시간 안의 기록도 `released/<시각>-again/` 로 옮기고 실행한다. 사용자가 판단해 붙인다.
+  - 명시 재시험(`--retry-of`)은 이전 기록을 대조하므로 자동 보관을 하지 않는다. `--again` 과 함께 쓸 수 없다.
+- 배경: 그전에는 전송권이 영구히 남아 매 실전 뒤 사람이 파일을 옮겨야 했다. 미결제 좌석은 10~32분에 풀리므로
+  어제의 기록은 중복 주문을 막는 구실을 못 했다.
+- `--release-no-reference` 는 남아 있지만 평소에는 쓸 일이 없다.
 - 금액 표기 예외(사용자 승인 2026-09-19): 운임 `amount=0`, 주문 `amount=totalAmount`, 총액·마일리지 일치, KRW이면 이 실행의 목표에서 허용(`observed-zero-to-total`).
 
+### 4.5.1 대체 예매 게이트 (`--order-outcome-file` / `--order-gate-file`)
+- 1순위 실행은 주문 판정을 신호 파일에 쓴다(`state`·`at`·`referencePresent`·`httpStatus`, 식별자 없음).
+- 대체 실행은 운임·주문 준비까지 끝낸 뒤 **주문 직전에** 그 파일을 본다(50ms 간격, `--order-gate-timeout`).
+  `business-error` + `referencePresent: false` 일 때만 주문한다. `order-recorded`·그 밖의 상태·읽을 수 없음·시간 초과는 주문하지 않는다(종료 코드 0).
+- **이 실행이 시작하기 전에 쓰인 신호는 아직 안 온 것으로 본다**(2026-10-05). 같은 날 다시 실행하면 앞선 시도의 신호가 남아 있다.
+
 ### 4.6 인계와 결제 단계 (`--state-bridge --continue-payment --inspect-failure`)
-- 결속(bind)은 대기 중 **T-15초**에 정확한 달력 탭에서 잡는다(쿠키·회원 저장값·4개 저장 모델의 기준). 쿠키 값 비교 제외: `bm_s`·`bm_sv`·`QueueIT…`·`_ga_…`·`_abck`·`T`·`t_sck`(이름은 대조). 실패 시 바뀐 쿠키 이름만 진단. 발사→주문→connect는 결속 후 120초 안이어야 한다.
+- 결속(bind)은 대기 중 **T-15초**에 정확한 달력 탭에서 잡는다(쿠키·회원 저장값·4개 저장 모델의 기준). 쿠키 값 비교 제외: `bm_s`·`bm_sv`·`QueueIT…`·`_ga_…`·`_abck`·`T`·`t_sck`·**`bm_so`·`bm_lso`**(2026-10-05 추가, 이름은 대조). 실패 시 바뀐 쿠키 이름만 진단. 발사→주문→connect는 결속 후 120초 안이어야 한다.
 - 주문 응답 신선도 상한 90초(`state_bridge.RESPONSE_MAX_AGE`).
 - connect: 검증 응답으로 `fareInformation`·`inputTravellers` 저장 모델 적용 → 게이트 이동 → 같은 주문 참조·날짜·마일리지·KRW 표시 확인.
 - `payment_pass`: 동의 2개(각 모달 상태 확인) → 마일리지(`ensure_mileage`) → 방향별:
@@ -122,22 +149,26 @@
 | `--at HH:MM:SS` `--health-at` `--late-limit 3` | 발사 시각 / 세션 점검 / 늦은 기상 허용 |
 | `--pre-fire-ms` `--open-retry-*` `--not-open-shape` `--unmeasured-clock-margin-ms` | §4.3·§4.4 |
 | `--state-bridge --continue-payment --inspect-failure` | 인계·결제 단계·실패 조사 |
-| `--state-dir` | 리허설 전용 상태 폴더(기본 `dev-shots/state` 금지) |
+| `--state-dir` | 상태 폴더(기본 `dev-shots/state` 금지). `astra` 는 자리마다 `dev-shots/state-<포트>` 를 쓴다 |
+| `--again` | 12시간 안의 주문 기록을 보관하고 실행(§4.5) |
+| `--order-outcome-file` / `--order-gate-file` / `--order-gate-timeout` | 대체 예매 게이트(§4.5.1) |
 | `--observe-date` `--observe-count` | 리허설 부수 관측: 미개방 날짜 조회 형태 기록 |
 | `--dry` | 운임·필수 검증까지, **주문 직전 중단**(캡처는 수행) |
-| `--status` / `--release-no-reference` | 상태 읽기 / 예약번호 없는 unknown 보관 |
+| `--status` / `--release-no-reference` | 새 실행이 막히는지 읽기(아무것도 옮기지 않는다) / 예약번호 없는 unknown 보관 |
 
-종료 코드: 0 완료(또는 사용자 차례), 2 거부·실패(주문이 나갔을 수 있음 → 재실행 금지), **3 주문 전 준비 무효(재준비 가능)**.
+종료 코드: 0 완료(또는 사용자 차례, 대체 게이트가 주문하지 않음), 2 거부·실패(주문이 나갔을 수 있음 → 재실행 금지),
+**3 주문 전 준비 무효(로그인부터 재준비)**, **4 준비 통과 실패·주문 요청 없음(Chrome 재기동 뒤 재준비)**.
 
 ## 6. 기록·증거 (Git 제외 `dev-shots/`)
 
 | 경로 | 내용 |
 |---|---|
-| `state/order-intent-<day>.json` | preparing / prep-no-unblocked-order / sending / ordered / unknown, runId, 진단(오류 코드 포함) |
-| `state/order-permit.json` | 전송권(날짜 무관). 자동 삭제 안 함 |
+| `state-<포트>/order-intent-<day>.json` | preparing / prep-no-unblocked-order / prep-order-possible / sending / ordered / unknown, runId, 진단(오류 코드 포함). `astra` 없이 직접 부른 9232 는 예전 폴더 `state/` |
+| `state-<포트>/order-permit.json` | 전송권. 12시간 지나면 다음 실행이 보관 폴더로 옮긴다 |
 | `state/order-evidence/<runId>/received.json` | 허용 항목: pnr·orderId·목표·HK·통화·총액·마일리지·요청/수신 시각·승객 지문·진단·**오류 코드·메시지(정제)** |
 | `state/fire-timing-<day>-<id>.json` | 시계 측정들·선발사·신뢰 경계·조회 시도별 보정 송수신 시각·판정·응답 형태 |
-| `state/released/<day>-<runId>-<ts>/` | 보관된 unknown·전송권과 사유 |
+| `state-<포트>/released/<시각>-auto/` · `-again/` | 자동 보관·`--again` 보관된 기록과 사유(`release.json`) |
+| `gate/<실행일>-<계정>.json` | 대체 예매 신호 |
 | `state-rehearsal/<runId>/` | 리허설 상태 폴더(같은 구조) |
 | `api-day/<mode>-<runId>.json`, `*-console.log`, `observer-<runId>.log` | 체인 보고서·콘솔 사본·계측 체인 로그 |
 
@@ -145,12 +176,15 @@
 
 ## 7. 알려진 한계·다음 과제
 
-1. 09:00 경쟁: 주문 송신 실측 최속은 **+1.990초**(9/23, `orderRequestStartedAt` 기준).
-   나흘 추이 +2.732 → +2.408 → +2.290 → +1.990. 조회 생략·겹침·운임 생략은 모두 막혀 있다.
-   **경쟁자 주문 시각은 직접 관측한 적이 없고**, 좌석 감소의 원인도 미확인이다 —
-   기존의 "첫 좌석은 이길 수 없다 / 2석 이상이면 이긴다"는 **철회했다**([FACTS §8.1](../../FACTS.md)).
-   관측 사실은 **9/21 에 처음 2석으로 표시된 조건에서 주문 1건 기록에 성공했다**까지다.
-2. 예매 조회 계측기(9233, 개방 경계·`seatCount`)는 9/20부터 실전 — [계측 명세 §5](observer.md#next). 선발사 값은 2일 이상 자료로 결정.
-3. 9/19 business-error 원인 미확정(오류 코드 수집은 이후 추가).
-4. 현대카드 단계는 리허설 1회 통과. 09시 신규 개방에서의 인계·결제창은 미검증.
-5. 조사 도구(`collect`·`analyze`·`deadline`)는 [research/](../../research/README.md)로 분리했다(2026-10-04).
+1. 09:00 경쟁: 주문 송신 실측은 개방 **+1.990 ~ +3.011초**(9/20~9/25 엿새, `orderRequestStartedAt` 기준).
+   조회 생략·겹침·운임 생략은 모두 막혀 있다. **경쟁자 주문 시각은 직접 관측한 적이 없고**, 좌석 감소의 원인도
+   9/25 한 번(우리 자신의 주문) 말고는 확인하지 못했다([FACTS §8.1](../../FACTS.md)).
+2. **사이트 변경에 닫히는 쪽으로 실패한다.** 주문 직전 인계 점검은 결속 뒤 값이 바뀐 쿠키가 목록에 없으면 주문을
+   거부한다. 2026-10-05 에 새 쿠키 `bm_so`·`bm_lso` 때문에 막혔다. 봇 관리 쿠키가 또 늘면 다시 막힌다 —
+   그래서 실전 전 연습(`astra rehearse`)이 필수다.
+3. 결제수단이 방향별로 고정이다(ICN 출발 Npay, ICN 도착 현대카드). 다른 수단을 쓰는 사람은 결제창을 닫고 직접 고른다.
+4. 캡처 날짜 `auto` 는 달력 칸의 '일반석' 표시만 본다. 그 날짜에 목표 편의 일반석이 없으면 준비 통과의 운임 선택에서
+   실패하고 재준비에서 다시 고른다(같은 날을 다시 고를 수 있다).
+5. 인계 `storage-changed`(9/24, 두 번)는 재현되지 않았고 원인을 모른다. 주문은 기록된 뒤라 예약 조회로 결제할 수 있다.
+6. 계정은 둘까지, 자리(포트·프로필)는 다섯 개로 고정이다.
+7. 작업 스케줄러·콘솔 창은 Windows 전용이다.

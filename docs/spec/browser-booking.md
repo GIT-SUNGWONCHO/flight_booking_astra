@@ -2,6 +2,10 @@
 
 기준: 2026-09-19. **현재 운영 경로는 [API 예매](api-booking.md)다.** 이 방식은 사용자 지시로 반복 테스트를 멈춘
 보류 상태이며, API 경로가 막힐 때의 대체 수단으로 보존한다. 재개는 사용자 지시가 있을 때만 한다.
+**쓰는 법(설치·패널·녹화·연습)은 [옛 브라우저 매크로 안내](../guide/macro.md)에 있다.** 이 문서는 동작 조건과 그때의 실측이다.
+
+2026-10-04 변경: 패널의 고급 도구(선발사·시각 동기·시작 화면·조회 응답·녹화·재생·삭제·단계 편집·내보내기)를 '고급 설정'에 접었다.
+API 예매·계측 창(`setup.py --api-mode`)에는 재생 엔진·편집기·패널을 싣지 않는다. 매크로 실행기는 그 표시 없이 들어가므로 전과 같다.
 
 ## 1. 구성
 
@@ -13,7 +17,7 @@
 | `macro/prepare_day.py`·`check_day.py`·`worker_health.py`·`stage_process.py` | 08:20 준비·읽기 점검·작업자 수명 |
 | `macro/manual_booking.py`·`hybrid.py`·`departure_live.py`·`network_trace.py` | 사용자 대기·정시 발사·조회 화면 경로·네트워크 증거 |
 | `macro/autorun.py`·`daily.py`·`rehearse.py`·`ke_setup.py`·`watch_seats.py`·`preflight.py`·`drive.py` | 과거 실행기·리허설·보조. 현재 운영 명령과 섞지 않는다 |
-| `macro/day.ps1`·`morning.ps1`·`astra_target.ps1`·`daily.cmd`, `dev/browsers.ps1`, `dev-browser*.cmd/sh` | Windows/Mac 실행 보조 |
+| `macro/day.ps1`·`morning.ps1`·`astra_target.ps1`·`daily.cmd`, `dev/browsers.ps1`·`astra_browsers.ps1`/`.sh` | Windows/Mac 실행 보조 |
 
 ## 2. 유지할 동작 조건 (재개 시 그대로 적용)
 

@@ -4,7 +4,8 @@
 
 | 구분 | 파일 | 쓰는 곳 |
 |---|---|---|
-| **브라우저·로그인** | `astra_browsers.ps1`/`.sh`·`browsers.ps1`(전용 Chrome 띄우기), `setup.py`(로그인·달력 준비), `browser_identity.py`(창 이름표), `session_health.py`(로그인 만료 확인), `close_astra_browser.py` | 예매·계측 |
+| **설정** | `astra_config.py`(`config/run.json` 검증, 자리 배정, 실행 목록과 `api_day` 인자) | `astra.py`·`setup.py`·`api_day.py` |
+| **브라우저·로그인** | `astra_browsers.ps1`/`.sh`·`browsers.ps1`(전용 Chrome 띄우기), `setup.py`(로그인·달력 준비. `--api-mode` 면 매크로 패널을 싣지 않는다), `browser_identity.py`(창 이름표), `session_health.py`(로그인 만료 확인), `close_astra_browser.py` | 예매·계측 |
 | **시계·실행 기록** | `runtime.py`(`measure_clock`·실행 ID·저장), `server_clock.py`, `browser_timing.py` | 예매·계측 |
 | **일정** | `test_calendar.py` + [`config/test_calendar.json`](../config/test_calendar.json) → [docs/calendar.md](../docs/calendar.md) | 계측·옛 매크로 |
 | **계측기** | `observer_chain.py`(9233 체인), `award_observer.py`(좌석 수), `calendar_observer.py` | [계측 명세](../docs/spec/observer.md) |

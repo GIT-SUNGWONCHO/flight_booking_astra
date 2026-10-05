@@ -6,7 +6,7 @@ AI가 지켜야 할 작업 범위·권한·변경 규칙이다. 시스템 구성
 ## 1. 작업 시작
 
 1. [NOW](NOW.md)에서 다음 목표·남은 상태를 확인한다.
-2. [README](README.md)의 문서 지도에서 해당 구성 요소 명세와 [운영](docs/operations.md)을 읽는다.
+2. [README](README.md)의 문서 지도에서 해당 구성 요소 명세와 [운영](docs/operations.md)을 읽는다. 쓰는 사람용 안내는 [docs/guide/](docs/guide/)다.
 3. [FACTS](FACTS.md)에서 관련 실측과 한계를 대조한다. 날짜·노선은 [공통 일정](config/test_calendar.json)이 원본이다.
 4. `git status --short`로 미커밋 상태를 확인한다. reset·clean·재설치를 인계 절차로 하지 않는다.
 
@@ -17,9 +17,9 @@ AI가 지켜야 할 작업 범위·권한·변경 규칙이다. 시스템 구성
 
 | 영역 | 허용 범위 |
 |---|---|
-| API 예매(운영) | 이 저장소, 9232·`.debug-profile`. 2026-09-19 사용자 승인으로 9232에서 API 예매를 운영한다 |
-| 계측 | 9233·`.debug-profile2`(본인 네이버). 예매와 실패를 분리한다 |
-| API 연구 | 9242·`.api-profile`(`research/open_lab.*`). 프로필 복사 금지 |
+| API 예매(운영) | 이 저장소의 전용 Chrome 자리 9232·9243(계정 1), 9242·9244(계정 2). 계정·로그인 방식은 `config/run.json`, 입구는 `astra.py`([운영](docs/operations.md)) |
+| 계측 | 9233·`.debug-profile2`. 예매와 실패를 분리한다 |
+| 조사 | `research/`. 예매 준비 중에는 예매 자리의 창을 쓰지 않는다. 프로필 복사 금지 |
 | 이웃 원본 | 옆 `flight_booking` 폴더와 9222/9223은 읽거나 연결하지 않는다 |
 
 Chrome을 프로세스 이름으로 일괄 종료하지 않는다. 종료는 소유 프로필·포트·PID를 확인한 범위에 한정한다
@@ -35,6 +35,7 @@ Chrome을 프로세스 이름으로 일괄 종료하지 않는다. 종료는 소
 - 주문은 실행당 1회. 응답이 불명확하면 재전송하지 않는다. 예약 목록으로 좌석 확보·해제를 판단하지 않는다.
 - 계측의 준비·로그인·실행 실패를 이유로 예매를 멈추지 않는다.
 - 미검증 값(선발사·계측 간격 가드 상향 등)은 사용자가 결정한 경우에만 실전에 넣는다.
+- **사이트는 바뀐다.** 한동안 쓰지 않았으면 실전 전에 `astra rehearse` 가 끝까지 가는지 먼저 본다(2026-10-05 에 열흘 만에 주문 직전 점검이 막혀 있었다).
 - 실사이트 요청·주문은 허용된 시험 범위에서만 한다. 캡처 준비도 주문을 만들 수 있으므로 `--dry`라는 이름만으로 무주문으로 분류하지 않는다.
 
 ## 4. 변경과 검증
@@ -54,6 +55,6 @@ currency, totalAmount, mileage, 주문 요청/응답 시각, 실행 ID, 허용 �
 **주문 오류 코드·메시지(정제)**(2026-09-19 승인). 응답 전체·승객 원문·쿠키·인증/결제 토큰·pageTicket·trace/uuid는 저장하지 않는다.
 식별자를 일반 문서·터미널 출력으로 옮기지 않는다.
 
-문서 역할(한 정보는 한 곳): 상태 [NOW](NOW.md), 동작 [docs/spec/](docs/spec/), 절차 [docs/operations.md](docs/operations.md),
+문서 역할(한 정보는 한 곳): 상태 [NOW](NOW.md), 동작 [docs/spec/](docs/spec/), 쓰는 법 [docs/guide/](docs/guide/), 낮은 수준 절차 [docs/operations.md](docs/operations.md),
 시험 [docs/testing.md](docs/testing.md), 사실 [FACTS](FACTS.md), 실행 결과 [docs/results/](docs/results/),
 일정 [config/test_calendar.json](config/test_calendar.json)→[docs/calendar.md](docs/calendar.md). 마무리는 [ke-wrap](.claude/skills/ke-wrap/SKILL.md).
