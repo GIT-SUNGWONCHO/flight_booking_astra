@@ -129,7 +129,7 @@ astra.py (입구) ─ config/run.json 을 실행 목록으로 푼다(dev/astra_c
 - **이 실행이 시작하기 전에 쓰인 신호는 아직 안 온 것으로 본다**(2026-10-05). 같은 날 다시 실행하면 앞선 시도의 신호가 남아 있다.
 
 ### 4.6 인계와 결제 단계 (`--state-bridge --continue-payment --inspect-failure`)
-- 결속(bind)은 대기 중 **T-15초**에 정확한 달력 탭에서 잡는다(쿠키·회원 저장값·4개 저장 모델의 기준). 쿠키 값 비교 제외: `bm_s`·`bm_sv`·`QueueIT…`·`_ga_…`·`_abck`·`T`·`t_sck`·**`bm_so`·`bm_lso`**(2026-10-05 추가, 이름은 대조). 실패 시 바뀐 쿠키 이름만 진단. 발사→주문→connect는 결속 후 120초 안이어야 한다.
+- 결속(bind)은 대기 중 **T-15초**에 정확한 달력 탭에서 잡는다(쿠키·회원 저장값·4개 저장 모델의 기준). 쿠키 값 비교 제외(이름은 대조): `QueueIT…`·`_ga_…`·`_abck`·`T`·`t_sck`. **이름이 `bm_` 로 시작하는 쿠키는 이름도 값도 대조하지 않는다**(2026-10-05 사용자 결정 — Akamai 봇 관리 묶음. 9/14 `bm_s`·`bm_sv`, 10/05 `bm_so`·`bm_lso` 로 두 번 주문이 막혔다). `loggedInUserInfo` 와 나머지 쿠키는 그대로 본다. 실패 시 바뀐 쿠키 이름만 진단. 발사→주문→connect는 결속 후 120초 안이어야 한다.
 - 주문 응답 신선도 상한 90초(`state_bridge.RESPONSE_MAX_AGE`).
 - connect: 검증 응답으로 `fareInformation`·`inputTravellers` 저장 모델 적용 → 게이트 이동 → 같은 주문 참조·날짜·마일리지·KRW 표시 확인.
 - `payment_pass`: 동의 2개(각 모달 상태 확인) → 마일리지(`ensure_mileage`) → 방향별:
@@ -137,6 +137,8 @@ astra.py (입구) ─ config/run.json 을 실행 목록으로 푼다(dev/astra_c
   - **ICN 도착**(9/20 사용자 승인): 한국발행 신용/체크카드 확인 → `#sel-korCardCompany`에서 **현대카드** 선택·재확인 → 주문 재판정 →
     결제하기 → 새 창 `ansimclick.hyundaicard.com`(`/xacs3/`·`/web/`)의 앱카드/PIN 선택 화면 → `hyundai-card-window`, 알림음. 창 안은 누르지 않는다.
     현대카드 선택을 확인하지 못하면 결제하기 없이 `user-payment-method`로 사용자에게 넘긴다.
+- **`--payment manual`**(2026-10-05 사용자 결정): 동의 2개·마일리지까지 하고 결제수단을 고르기 전에 멈춘다 →
+  `user-payment-method`, 알림음, 종료 코드 0. 노선 방향을 가리지 않는다. 결제수단 직전에 화면 주문을 다시 판정한다.
 - 인계 실패는 재주문 없이 조사 모드(메모리 보존, `summary`/`diagnose`/`resume`/`exit`)로 간다.
 
 ## 5. `live_order.py` 주요 옵션
@@ -151,6 +153,7 @@ astra.py (입구) ─ config/run.json 을 실행 목록으로 푼다(dev/astra_c
 | `--state-bridge --continue-payment --inspect-failure` | 인계·결제 단계·실패 조사 |
 | `--state-dir` | 상태 폴더(기본 `dev-shots/state` 금지). `astra` 는 자리마다 `dev-shots/state-<포트>` 를 쓴다 |
 | `--again` | 12시간 안의 주문 기록을 보관하고 실행(§4.5) |
+| `--payment auto\|manual` | 결제수단까지 고를지(§4.6). 설정의 `payment` |
 | `--order-outcome-file` / `--order-gate-file` / `--order-gate-timeout` | 대체 예매 게이트(§4.5.1) |
 | `--observe-date` `--observe-count` | 리허설 부수 관측: 미개방 날짜 조회 형태 기록 |
 | `--dry` | 운임·필수 검증까지, **주문 직전 중단**(캡처는 수행) |
@@ -179,10 +182,11 @@ astra.py (입구) ─ config/run.json 을 실행 목록으로 푼다(dev/astra_c
 1. 09:00 경쟁: 주문 송신 실측은 개방 **+1.990 ~ +3.011초**(9/20~9/25 엿새, `orderRequestStartedAt` 기준).
    조회 생략·겹침·운임 생략은 모두 막혀 있다. **경쟁자 주문 시각은 직접 관측한 적이 없고**, 좌석 감소의 원인도
    9/25 한 번(우리 자신의 주문) 말고는 확인하지 못했다([FACTS §8.1](../../FACTS.md)).
-2. **사이트 변경에 닫히는 쪽으로 실패한다.** 주문 직전 인계 점검은 결속 뒤 값이 바뀐 쿠키가 목록에 없으면 주문을
-   거부한다. 2026-10-05 에 새 쿠키 `bm_so`·`bm_lso` 때문에 막혔다. 봇 관리 쿠키가 또 늘면 다시 막힌다 —
-   그래서 실전 전 연습(`astra rehearse`)이 필수다.
-3. 결제수단이 방향별로 고정이다(ICN 출발 Npay, ICN 도착 현대카드). 다른 수단을 쓰는 사람은 결제창을 닫고 직접 고른다.
+2. **사이트 변경에 닫히는 쪽으로 실패한다.** 주문 직전 인계 점검은 결속 뒤 바뀐 쿠키가 허용 범위 밖이면 주문을
+   거부한다. 2026-10-05 에 새 쿠키 `bm_so`·`bm_lso` 때문에 막혔고, 그 뒤 `bm_` 묶음은 통째로 뺐다. 묶음 밖의 쿠키가
+   새로 돌기 시작하면 다시 막힌다 — 그래서 실전 전 연습(`astra rehearse`)이 필수다.
+3. `payment: auto` 의 결제수단은 방향별로 고정이다(ICN 출발 Npay, ICN 도착 현대카드). 다른 카드사를 골라 주는 기능은 없고,
+   그런 사람은 `payment: manual` 로 결제수단 선택 앞에서 넘겨받는다.
 4. 캡처 날짜 `auto` 는 달력 칸의 '일반석' 표시만 본다. 그 날짜에 목표 편의 일반석이 없으면 준비 통과의 운임 선택에서
    실패하고 재준비에서 다시 고른다(같은 날을 다시 고를 수 있다).
 5. 인계 `storage-changed`(9/24, 두 번)는 재현되지 않았고 원인을 모른다. 주문은 기록된 뒤라 예약 조회로 결제할 수 있다.

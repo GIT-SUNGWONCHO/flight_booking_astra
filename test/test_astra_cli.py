@@ -252,6 +252,16 @@ class SmallRuleTests(unittest.TestCase):
         self.assertIsNone(astra.check_times(CFG, (astra.today() + timedelta(days=3)).isoformat()))
         self.assertIn('오늘', astra.check_times(CFG, (astra.today() + timedelta(days=3)).isoformat(), now_start=True))
 
+    def test_mileage_on_the_site_is_compared_with_the_config(self):
+        # 2026-10-05: 설정에 65,000 으로 적힌 계정이 실제로는 28,377 이어서 준비 통과가 세 번 다 멈췄다.
+        bad, text = astra.mileage_verdict(65000, 28377)
+        self.assertTrue(bad)
+        self.assertIn('65,000', text)
+        self.assertIn('28,377', text)
+        self.assertEqual(astra.mileage_verdict(65000, 65000), (False, '마일리지 65,000 - 설정과 같다'))
+        self.assertFalse(astra.mileage_verdict(50000, 80000)[0])       # 더 많은 것은 문제가 아니다
+        self.assertIsNone(astra.mileage_verdict(65000, None))          # 못 읽었으면 말하지 않는다
+
     def test_used_slots_cover_every_browser_the_plan_needs(self):
         slots = astra.used_slots(CFG)
         self.assertEqual([(p, a['name'], use) for p, a, use in slots],

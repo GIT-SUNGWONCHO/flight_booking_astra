@@ -157,6 +157,48 @@ def logged_in(port):
     return False
 
 
+MILEAGE_JS = """() => { try {
+  const info = JSON.parse(sessionStorage.getItem('loggedInUserInfo') || 'null');
+  const user = (info && info.userInfo) || {};
+  const raw = user.remainingMilage != null ? user.remainingMilage : (user.login || {}).member_info_remaining_miles;
+  const n = parseInt(String(raw).replace(/[^0-9]/g, ''), 10);
+  return Number.isFinite(n) ? n : null;
+} catch (e) { return null; } }"""
+
+
+def site_mileage(port):
+    """그 자리에 로그인된 계정의 사용 가능 마일리지(숫자). 못 읽으면 None.
+
+    대한항공이 로그인 뒤 브라우저에 넣어 두는 정보(sessionStorage 의 loggedInUserInfo)에서 그 숫자 하나만 읽는다.
+    이름·회원번호 같은 다른 값은 읽지 않는다. 2026-10-05 에 화면의 '나의 마일리지'와 같은 값임을 확인했다.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as pw:
+            browser = pw.chromium.connect_over_cdp(f'http://127.0.0.1:{port}', timeout=8000)
+            for context in browser.contexts:
+                for page in context.pages:
+                    if 'koreanair.com' in (page.url or ''):
+                        value = page.evaluate(MILEAGE_JS)
+                        if isinstance(value, int):
+                            return value
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def mileage_verdict(configured, on_site):
+    """설정에 적은 마일리지와 사이트의 값을 견준다. (문제인가, 문장). 사이트 값을 못 읽었으면 None."""
+    if on_site is None:
+        return None
+    if on_site < configured:
+        return True, (f'설정의 mileage 는 {configured:,} 인데 대한항공에는 {on_site:,} 로 나온다. '
+                      f'config 의 mileage 를 {on_site} 로 고친다(모자라면 준비 통과도 주문도 되지 않는다)')
+    if on_site > configured:
+        return False, f'마일리지 {on_site:,}(대한항공) - 설정에는 {configured:,} 로 적혀 있다. 그대로 둬도 되지만 맞춰 두는 편이 낫다'
+    return False, f'마일리지 {on_site:,} - 설정과 같다'
+
+
 def used_slots(cfg):
     """이 설정이 쓰는 브라우저 자리. [(포트, 계정, 쓰임)]"""
     slots = []
@@ -369,6 +411,9 @@ def cmd_check(a):
             out = [(False, f'{who}: 로그인돼 있고 달력이 열린다')]
             if use == '계측':
                 return out
+            verdict = mileage_verdict(acc['mileage'], site_mileage(port))
+            if verdict:
+                out.append((verdict[0], f'{who}: {verdict[1]}' if verdict[0] else f'    {verdict[1]}'))
             try:
                 cells = capture_date.read_cells(port)
             except Exception as exc:  # noqa: BLE001

@@ -33,6 +33,7 @@ python api_booking\api_day.py --mode live --target-date 2027-09-20 --capture-iso
 ```
 
 대체 실행은 `--family KEBONUSEY --at 09:00:04 --pre-fire-ms 500 --order-gate-file <같은 신호 파일> --order-gate-timeout 5`.
+설정이 `"payment": "manual"` 이면 모든 실행에 `--payment manual` 이 붙는다.
 
 당일 흐름: 08:20 체인 시작(Chrome 재기동·로그인, 첫 실행은 계측 체인도) → 캡처 날짜 고르기 → 08:38 캡처 통과 →
 08:50 세션 점검(실패 시 08:52 전 재준비) → T-60초 시계 재측정 → T-15초 결속 → 발사 → 주문 → 인계 → 알림음.
